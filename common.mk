@@ -1,5 +1,5 @@
 UNAME=$(shell uname)
-DEBUG=1
+DEBUG=0
 COVERAGE=0
 INSTALL=install
 LN=ln
@@ -199,4 +199,3 @@ endif
 
 # Always remake the following targets
 .PHONY: install clean dist distclean
-
