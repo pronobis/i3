@@ -105,7 +105,7 @@ struct Config {
 
     /** By default, focus follows mouse. If the user explicitly wants to
      * turn this off (and instead rely only on the keyboard for changing
-     * focus), we allow him to do this with this relatively special option.
+     * focus), we allow them to do this with this relatively special option.
      * It is not planned to add any different focus models. */
     bool disable_focus_follows_mouse;
 
@@ -166,6 +166,22 @@ struct Config {
      * application raised the event. To prevent this, the reset of the urgency
      * flag can be delayed using an urgency timer. */
     float workspace_urgency_timer;
+
+    /** Behavior when a window sends a NET_ACTIVE_WINDOW message. */
+    enum {
+        /* Focus if the target workspace is visible, set urgency hint otherwise. */
+        FOWA_SMART,
+        /* Always set the urgency hint. */
+        FOWA_URGENT,
+        /* Always focus the window. */
+        FOWA_FOCUS,
+        /* Ignore the request (no focus, no urgency hint). */
+        FOWA_NONE
+    } focus_on_window_activation;
+
+    /** Specifies whether or not marks should be displayed in the window
+     * decoration. Marks starting with a "_" will be ignored either way. */
+    bool show_marks;
 
     /** The default border style for new windows. */
     border_style_t default_border;
@@ -284,6 +300,9 @@ struct Barconfig {
 
     /** Font specification for all text rendered on the bar. */
     char *font;
+
+    /** A custom separator to use instead of a vertical line. */
+    char *separator_symbol;
 
     /** Hide workspace buttons? Configuration option is 'workspace_buttons no'
      * but we invert the bool to get the correct default when initializing with

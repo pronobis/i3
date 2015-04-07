@@ -1,6 +1,5 @@
 UNAME=$(shell uname)
 DEBUG=0
-COVERAGE=0
 INSTALL=install
 LN=ln
 ifndef PREFIX

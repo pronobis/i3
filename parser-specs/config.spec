@@ -31,6 +31,7 @@ state INITIAL:
   'hide_edge_borders'                      -> HIDE_EDGE_BORDERS
   'for_window'                             -> FOR_WINDOW
   'assign'                                 -> ASSIGN
+  'no_focus'                               -> NO_FOCUS
   'focus_follows_mouse'                    -> FOCUS_FOLLOWS_MOUSE
   'mouse_warping'                          -> MOUSE_WARPING
   'force_focus_wrapping'                   -> FORCE_FOCUS_WRAPPING
@@ -38,6 +39,8 @@ state INITIAL:
   'workspace_auto_back_and_forth'          -> WORKSPACE_BACK_AND_FORTH
   'fake_outputs', 'fake-outputs'           -> FAKE_OUTPUTS
   'force_display_urgency_hint'             -> FORCE_DISPLAY_URGENCY_HINT
+  'focus_on_window_activation'             -> FOCUS_ON_WINDOW_ACTIVATION
+  'show_marks'                             -> SHOW_MARKS
   'workspace'                              -> WORKSPACE
   'ipc_socket', 'ipc-socket'               -> IPC_SOCKET
   'restart_state'                          -> RESTART_STATE
@@ -148,6 +151,15 @@ state ASSIGN_WORKSPACE:
   workspace = string
       -> call cfg_assign($workspace)
 
+# no_focus <criteria>
+state NO_FOCUS:
+  '['
+      -> call cfg_criteria_init(NO_FOCUS_END); CRITERIA
+
+state NO_FOCUS_END:
+  end
+      -> call cfg_no_focus()
+
 # Criteria: Used by for_window and assign.
 state CRITERIA:
   ctype = 'class'       -> CRITERION
@@ -204,11 +216,21 @@ state FORCE_DISPLAY_URGENCY_HINT:
   duration_ms = number
       -> FORCE_DISPLAY_URGENCY_HINT_MS
 
+# show_marks
+state SHOW_MARKS:
+  value = word
+      -> call cfg_show_marks($value)
+
 state FORCE_DISPLAY_URGENCY_HINT_MS:
   'ms'
       ->
   end
       -> call cfg_force_display_urgency_hint(&duration_ms)
+
+# focus_on_window_activation <smart|urgent|focus|none>
+state FOCUS_ON_WINDOW_ACTIVATION:
+  mode = word
+      -> call cfg_focus_on_window_activation($mode)
 
 # workspace <workspace> output <output>
 state WORKSPACE:
@@ -327,6 +349,8 @@ state MODE_IGNORE_LINE:
 state MODE_BINDING:
   release = '--release'
       ->
+  whole_window = '--whole-window'
+      ->
   modifiers = 'Mod1', 'Mod2', 'Mod3', 'Mod4', 'Mod5', 'Shift', 'Control', 'Ctrl', 'Mode_switch', '$mod'
       ->
   '+'
@@ -370,6 +394,7 @@ state BAR:
   'output'                 -> BAR_OUTPUT
   'tray_output'            -> BAR_TRAY_OUTPUT
   'font'                   -> BAR_FONT
+  'separator_symbol'       -> BAR_SEPARATOR_SYMBOL
   'binding_mode_indicator' -> BAR_BINDING_MODE_INDICATOR
   'workspace_buttons'      -> BAR_WORKSPACE_BUTTONS
   'strip_workspace_numbers' -> BAR_STRIP_WORKSPACE_NUMBERS
@@ -434,6 +459,10 @@ state BAR_TRAY_OUTPUT:
 state BAR_FONT:
   font = string
       -> call cfg_bar_font($font); BAR
+
+state BAR_SEPARATOR_SYMBOL:
+  separator = string
+      -> call cfg_bar_separator_symbol($separator); BAR
 
 state BAR_BINDING_MODE_INDICATOR:
   value = word

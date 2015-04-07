@@ -106,7 +106,7 @@ static void check_crossing_screen_boundary(uint32_t x, uint32_t y) {
         return;
     }
 
-    /* Focus the output on which the user moved his cursor */
+    /* Focus the output on which the user moved their cursor */
     Con *old_focused = focused;
     Con *next = con_descend_focused(output_get_content(output->con));
     /* Since we are switching outputs, this *must* be a different workspace, so
@@ -149,7 +149,7 @@ static void handle_enter_notify(xcb_enter_notify_event_t *event) {
         enter_child = true;
     }
 
-    /* If not, then the user moved his cursor to the root window. In that case, we adjust c_ws */
+    /* If not, then the user moved their cursor to the root window. In that case, we adjust c_ws */
     if (con == NULL) {
         DLOG("Getting screen at %d x %d\n", event->root_x, event->root_y);
         check_crossing_screen_boundary(event->root_x, event->root_y);
@@ -651,6 +651,19 @@ static void handle_expose_event(xcb_expose_event_t *event) {
     return;
 }
 
+#define _NET_WM_MOVERESIZE_SIZE_TOPLEFT 0
+#define _NET_WM_MOVERESIZE_SIZE_TOP 1
+#define _NET_WM_MOVERESIZE_SIZE_TOPRIGHT 2
+#define _NET_WM_MOVERESIZE_SIZE_RIGHT 3
+#define _NET_WM_MOVERESIZE_SIZE_BOTTOMRIGHT 4
+#define _NET_WM_MOVERESIZE_SIZE_BOTTOM 5
+#define _NET_WM_MOVERESIZE_SIZE_BOTTOMLEFT 6
+#define _NET_WM_MOVERESIZE_SIZE_LEFT 7
+#define _NET_WM_MOVERESIZE_MOVE 8           /* movement only */
+#define _NET_WM_MOVERESIZE_SIZE_KEYBOARD 9  /* size via keyboard */
+#define _NET_WM_MOVERESIZE_MOVE_KEYBOARD 10 /* move via keyboard */
+#define _NET_WM_MOVERESIZE_CANCEL 11        /* cancel operation */
+
 /*
  * Handle client messages (EWMH)
  *
@@ -730,16 +743,17 @@ static void handle_client_message(xcb_client_message_event_t *event) {
             workspace_show(ws);
             con_focus(con);
         } else {
-            /* If the request is from an application, only focus if the
-             * workspace is visible. Otherwise set the urgency hint. */
-            if (workspace_is_visible(ws)) {
-                DLOG("Request to focus con on a visible workspace. Focusing con = %p\n", con);
+            /* Request is from an application. */
+
+            if (config.focus_on_window_activation == FOWA_FOCUS || (config.focus_on_window_activation == FOWA_SMART && workspace_is_visible(ws))) {
+                DLOG("Focusing con = %p\n", con);
                 workspace_show(ws);
                 con_focus(con);
-            } else {
-                DLOG("Request to focus con on a hidden workspace. Setting urgent con = %p\n", con);
+            } else if (config.focus_on_window_activation == FOWA_URGENT || (config.focus_on_window_activation == FOWA_SMART && !workspace_is_visible(ws))) {
+                DLOG("Marking con = %p urgent\n", con);
                 con_set_urgency(con, true);
-            }
+            } else
+                DLOG("Ignoring request for con = %p", con);
         }
 
         tree_render();
@@ -791,21 +805,6 @@ static void handle_client_message(xcb_client_message_event_t *event) {
             XCB_ATOM_CARDINAL, 32, 4,
             &r);
         xcb_flush(conn);
-    } else if (event->type == A_WM_CHANGE_STATE) {
-        /* http://tronche.com/gui/x/icccm/sec-4.html#s-4.1.4 */
-        Con *con = con_by_window_id(event->window);
-
-        if (con && event->data.data32[0] == 3) {
-            /* this request is so we can play some animiation showing the
-             * window physically moving to the tray before we close it (I
-             * think) */
-            DLOG("Client has requested iconic state. Closing this con. (con = %p)\n", con);
-            tree_close(con, DONT_KILL_WINDOW, false, false);
-            tree_render();
-        } else {
-            DLOG("Not handling WM_CHANGE_STATE request. (window = %d, state = %d)\n", event->window, event->data.data32[0]);
-        }
-
     } else if (event->type == A__NET_CURRENT_DESKTOP) {
         /* This request is used by pagers and bars to change the current
          * desktop likely as a result of some user action. We interpret this as
@@ -855,6 +854,37 @@ static void handle_client_message(xcb_client_message_event_t *event) {
             tree_render();
         } else {
             DLOG("Couldn't find con for _NET_CLOSE_WINDOW request. (window = %d)\n", event->window);
+        }
+    } else if (event->type == A__NET_WM_MOVERESIZE) {
+        /*
+         * Client-side decorated Gtk3 windows emit this signal when being
+         * dragged by their GtkHeaderBar
+         */
+        Con *con = con_by_window_id(event->window);
+        if (!con || !con_is_floating(con)) {
+            DLOG("Couldn't find con for _NET_WM_MOVERESIZE request, or con not floating (window = %d)\n", event->window);
+            return;
+        }
+        DLOG("Handling _NET_WM_MOVERESIZE request (con = %p)\n", con);
+        uint32_t direction = event->data.data32[2];
+        uint32_t x_root = event->data.data32[0];
+        uint32_t y_root = event->data.data32[1];
+        /* construct fake xcb_button_press_event_t */
+        xcb_button_press_event_t fake = {
+            .root_x = x_root,
+            .root_y = y_root,
+            .event_x = x_root - (con->rect.x),
+            .event_y = y_root - (con->rect.y)};
+        switch (direction) {
+            case _NET_WM_MOVERESIZE_MOVE:
+                floating_drag_window(con->parent, &fake);
+                break;
+            case _NET_WM_MOVERESIZE_SIZE_TOPLEFT... _NET_WM_MOVERESIZE_SIZE_LEFT:
+                floating_resize_window(con->parent, FALSE, &fake);
+                break;
+            default:
+                DLOG("_NET_WM_MOVERESIZE direction %d not implemented\n", direction);
+                break;
         }
     } else {
         DLOG("unhandled clientmessage\n");
@@ -1134,6 +1164,87 @@ static bool handle_class_change(void *data, xcb_connection_t *conn, uint8_t stat
     return true;
 }
 
+/*
+ * Handles the _NET_WM_STRUT_PARTIAL property for allocating space for dock clients.
+ *
+ */
+static bool handle_strut_partial_change(void *data, xcb_connection_t *conn, uint8_t state, xcb_window_t window,
+                                        xcb_atom_t name, xcb_get_property_reply_t *prop) {
+    DLOG("strut partial change for window 0x%08x\n", window);
+
+    Con *con;
+    if ((con = con_by_window_id(window)) == NULL || con->window == NULL) {
+        return false;
+    }
+
+    if (prop == NULL) {
+        xcb_generic_error_t *err = NULL;
+        xcb_get_property_cookie_t strut_cookie = xcb_get_property(conn, false, window, A__NET_WM_STRUT_PARTIAL,
+                                                                  XCB_GET_PROPERTY_TYPE_ANY, 0, UINT32_MAX);
+        prop = xcb_get_property_reply(conn, strut_cookie, &err);
+
+        if (err != NULL) {
+            DLOG("got error when getting strut partial property: %d\n", err->error_code);
+            free(err);
+            return false;
+        }
+
+        if (prop == NULL) {
+            return false;
+        }
+    }
+
+    DLOG("That is con %p / %s\n", con, con->name);
+
+    window_update_strut_partial(con->window, prop);
+
+    /* we only handle this change for dock clients */
+    if (con->parent == NULL || con->parent->type != CT_DOCKAREA) {
+        return true;
+    }
+
+    Con *search_at = croot;
+    Con *output = con_get_output(con);
+    if (output != NULL) {
+        DLOG("Starting search at output %s\n", output->name);
+        search_at = output;
+    }
+
+    /* find out the desired position of this dock window */
+    if (con->window->reserved.top > 0 && con->window->reserved.bottom == 0) {
+        DLOG("Top dock client\n");
+        con->window->dock = W_DOCK_TOP;
+    } else if (con->window->reserved.top == 0 && con->window->reserved.bottom > 0) {
+        DLOG("Bottom dock client\n");
+        con->window->dock = W_DOCK_BOTTOM;
+    } else {
+        DLOG("Ignoring invalid reserved edges (_NET_WM_STRUT_PARTIAL), using position as fallback:\n");
+        if (con->geometry.y < (search_at->rect.height / 2)) {
+            DLOG("geom->y = %d < rect.height / 2 = %d, it is a top dock client\n",
+                 con->geometry.y, (search_at->rect.height / 2));
+            con->window->dock = W_DOCK_TOP;
+        } else {
+            DLOG("geom->y = %d >= rect.height / 2 = %d, it is a bottom dock client\n",
+                 con->geometry.y, (search_at->rect.height / 2));
+            con->window->dock = W_DOCK_BOTTOM;
+        }
+    }
+
+    /* find the dockarea */
+    Con *dockarea = con_for_window(search_at, con->window, NULL);
+    assert(dockarea != NULL);
+
+    /* attach the dock to the dock area */
+    con_detach(con);
+    con->parent = dockarea;
+    TAILQ_INSERT_HEAD(&(dockarea->focus_head), con, focused);
+    TAILQ_INSERT_HEAD(&(dockarea->nodes_head), con, nodes);
+
+    tree_render();
+
+    return true;
+}
+
 /* Returns false if the event could not be processed (e.g. the window could not
  * be found), true otherwise */
 typedef bool (*cb_property_handler_t)(void *data, xcb_connection_t *c, uint8_t state, xcb_window_t window, xcb_atom_t atom, xcb_get_property_reply_t *property);
@@ -1152,7 +1263,8 @@ static struct property_handler_t property_handlers[] = {
     {0, UINT_MAX, handle_clientleader_change},
     {0, UINT_MAX, handle_transient_for},
     {0, 128, handle_windowrole_change},
-    {0, 128, handle_class_change}};
+    {0, 128, handle_class_change},
+    {0, UINT_MAX, handle_strut_partial_change}};
 #define NUM_HANDLERS (sizeof(property_handlers) / sizeof(struct property_handler_t))
 
 /*
@@ -1171,6 +1283,7 @@ void property_handlers_init(void) {
     property_handlers[5].atom = XCB_ATOM_WM_TRANSIENT_FOR;
     property_handlers[6].atom = A_WM_WINDOW_ROLE;
     property_handlers[7].atom = XCB_ATOM_WM_CLASS;
+    property_handlers[8].atom = A__NET_WM_STRUT_PARTIAL;
 }
 
 static void property_notify(uint8_t state, xcb_window_t window, xcb_atom_t atom) {
@@ -1217,12 +1330,21 @@ void handle_event(int type, xcb_generic_event_t *event) {
         DLOG("xkb event, need to handle it.\n");
 
         xcb_xkb_state_notify_event_t *state = (xcb_xkb_state_notify_event_t *)event;
-        if (state->xkbType == XCB_XKB_MAP_NOTIFY) {
+        if (state->xkbType == XCB_XKB_NEW_KEYBOARD_NOTIFY) {
+            DLOG("xkb new keyboard notify, sequence %d, time %d\n", state->sequence, state->time);
+            xcb_key_symbols_free(keysyms);
+            keysyms = xcb_key_symbols_alloc(conn);
+            ungrab_all_keys(conn);
+            translate_keysyms();
+            grab_all_keys(conn, false);
+        } else if (state->xkbType == XCB_XKB_MAP_NOTIFY) {
             if (event_is_ignored(event->sequence, type)) {
                 DLOG("Ignoring map notify event for sequence %d.\n", state->sequence);
             } else {
                 DLOG("xkb map notify, sequence %d, time %d\n", state->sequence, state->time);
                 add_ignore_event(event->sequence, type);
+                xcb_key_symbols_free(keysyms);
+                keysyms = xcb_key_symbols_alloc(conn);
                 ungrab_all_keys(conn);
                 translate_keysyms();
                 grab_all_keys(conn, false);
@@ -1233,7 +1355,7 @@ void handle_event(int type, xcb_generic_event_t *event) {
             /* See The XKB Extension: Library Specification, section 14.1 */
             /* We check if the current group (each group contains
              * two levels) has been changed. Mode_switch activates
-             * group XkbGroup2Index */
+             * group XCB_XKB_GROUP_2 */
             if (xkb_current_group == state->group)
                 return;
             xkb_current_group = state->group;
@@ -1243,7 +1365,7 @@ void handle_event(int type, xcb_generic_event_t *event) {
                 grab_all_keys(conn, false);
             } else {
                 DLOG("Mode_switch enabled\n");
-                grab_all_keys(conn, false);
+                grab_all_keys(conn, true);
             }
         }
 
@@ -1257,6 +1379,7 @@ void handle_event(int type, xcb_generic_event_t *event) {
             break;
 
         case XCB_BUTTON_PRESS:
+        case XCB_BUTTON_RELEASE:
             handle_button_press((xcb_button_press_event_t *)event);
             break;
 
@@ -1280,7 +1403,7 @@ void handle_event(int type, xcb_generic_event_t *event) {
             handle_motion_notify((xcb_motion_notify_event_t *)event);
             break;
 
-        /* Enter window = user moved his mouse over the window */
+        /* Enter window = user moved their mouse over the window */
         case XCB_ENTER_NOTIFY:
             handle_enter_notify((xcb_enter_notify_event_t *)event);
             break;

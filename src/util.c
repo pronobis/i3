@@ -42,17 +42,17 @@ bool rect_contains(Rect rect, uint32_t x, uint32_t y) {
 }
 
 Rect rect_add(Rect a, Rect b) {
-    return (Rect) {a.x + b.x,
-                   a.y + b.y,
-                   a.width + b.width,
-                   a.height + b.height};
+    return (Rect){a.x + b.x,
+                  a.y + b.y,
+                  a.width + b.width,
+                  a.height + b.height};
 }
 
 Rect rect_sub(Rect a, Rect b) {
-    return (Rect) {a.x - b.x,
-                   a.y - b.y,
-                   a.width - b.width,
-                   a.height - b.height};
+    return (Rect){a.x - b.x,
+                  a.y - b.y,
+                  a.width - b.width,
+                  a.height - b.height};
 }
 
 /*
@@ -160,38 +160,6 @@ void check_error(xcb_connection_t *conn, xcb_void_cookie_t cookie, char *err_mes
 }
 
 /*
- * This function resolves ~ in pathnames.
- * It may resolve wildcards in the first part of the path, but if no match
- * or multiple matches are found, it just returns a copy of path as given.
- *
- */
-char *resolve_tilde(const char *path) {
-    static glob_t globbuf;
-    char *head, *tail, *result;
-
-    tail = strchr(path, '/');
-    head = strndup(path, tail ? (size_t)(tail - path) : strlen(path));
-
-    int res = glob(head, GLOB_TILDE, NULL, &globbuf);
-    free(head);
-    /* no match, or many wildcard matches are bad */
-    if (res == GLOB_NOMATCH || globbuf.gl_pathc != 1)
-        result = sstrdup(path);
-    else if (res != 0) {
-        die("glob() failed");
-    } else {
-        head = globbuf.gl_pathv[0];
-        result = scalloc(strlen(head) + (tail ? strlen(tail) : 0) + 1);
-        strncpy(result, head, strlen(head));
-        if (tail)
-            strncat(result, tail, strlen(tail));
-    }
-    globfree(&globbuf);
-
-    return result;
-}
-
-/*
  * Checks if the given path exists by calling stat().
  *
  */
@@ -265,25 +233,13 @@ char *store_restart_layout(void) {
         return NULL;
     }
 
-    size_t written = 0;
-    while (written < length) {
-        int n = write(fd, payload + written, length - written);
-        /* TODO: correct error-handling */
-        if (n == -1) {
-            perror("write()");
-            free(filename);
-            close(fd);
-            return NULL;
-        }
-        if (n == 0) {
-            DLOG("write == 0?\n");
-            free(filename);
-            close(fd);
-            return NULL;
-        }
-        written += n;
-        DLOG("written: %zd of %zd\n", written, length);
+    if (writeall(fd, payload, length) == -1) {
+        ELOG("Could not write restart layout to \"%s\", layout will be lost: %s\n", filename, strerror(errno));
+        free(filename);
+        close(fd);
+        return NULL;
     }
+
     close(fd);
 
     if (length > 0) {

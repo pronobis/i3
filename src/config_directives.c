@@ -329,6 +329,27 @@ CFGFUN(force_display_urgency_hint, const long duration_ms) {
     config.workspace_urgency_timer = duration_ms / 1000.0;
 }
 
+CFGFUN(focus_on_window_activation, const char *mode) {
+    if (strcmp(mode, "smart") == 0)
+        config.focus_on_window_activation = FOWA_SMART;
+    else if (strcmp(mode, "urgent") == 0)
+        config.focus_on_window_activation = FOWA_URGENT;
+    else if (strcmp(mode, "focus") == 0)
+        config.focus_on_window_activation = FOWA_FOCUS;
+    else if (strcmp(mode, "none") == 0)
+        config.focus_on_window_activation = FOWA_NONE;
+    else {
+        ELOG("Unknown focus_on_window_activation mode \"%s\", ignoring it.\n", mode);
+        return;
+    }
+
+    DLOG("Set new focus_on_window_activation mode = %i", config.focus_on_window_activation);
+}
+
+CFGFUN(show_marks, const char *value) {
+    config.show_marks = eval_boolstr(value);
+}
+
 CFGFUN(workspace, const char *workspace, const char *output) {
     DLOG("Assigning workspace \"%s\" to output \"%s\"\n", workspace, output);
     /* Check for earlier assignments of the same workspace so that we
@@ -410,6 +431,19 @@ CFGFUN(assign, const char *workspace) {
     TAILQ_INSERT_TAIL(&assignments, assignment, assignments);
 }
 
+CFGFUN(no_focus) {
+    if (match_is_empty(current_match)) {
+        ELOG("Match is empty, ignoring this assignment\n");
+        return;
+    }
+
+    DLOG("new assignment, using above criteria, to ignore focus on manage");
+    Assignment *assignment = scalloc(sizeof(Assignment));
+    match_copy(&(assignment->match), current_match);
+    assignment->type = A_NO_FOCUS;
+    TAILQ_INSERT_TAIL(&assignments, assignment, assignments);
+}
+
 /*******************************************************************************
  * Bar configuration (i3bar)
  ******************************************************************************/
@@ -419,6 +453,11 @@ static Barconfig current_bar;
 CFGFUN(bar_font, const char *font) {
     FREE(current_bar.font);
     current_bar.font = sstrdup(font);
+}
+
+CFGFUN(bar_separator_symbol, const char *separator) {
+    FREE(current_bar.separator_symbol);
+    current_bar.separator_symbol = sstrdup(separator);
 }
 
 CFGFUN(bar_mode, const char *mode) {
