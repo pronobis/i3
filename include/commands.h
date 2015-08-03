@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2012 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * commands.c: all command functions (see commands_parser.c)
  *
@@ -67,7 +67,7 @@ void cmd_move_con_to_workspace_number(I3_CMD, char *which);
 void cmd_resize(I3_CMD, char *way, char *direction, char *resize_px, char *resize_ppt);
 
 /**
- * Implementation of 'border normal|none|1pixel|toggle'.
+ * Implementation of 'border normal|pixel [<n>]', 'border none|1pixel|toggle'.
  *
  */
 void cmd_border(I3_CMD, char *border_style_str, char *border_width);
@@ -131,6 +131,12 @@ void cmd_mode(I3_CMD, char *mode);
  *
  */
 void cmd_move_con_to_output(I3_CMD, char *name);
+
+/**
+ * Implementation of 'move [window|container] [to] mark <str>'.
+ *
+ */
+void cmd_move_con_to_mark(I3_CMD, char *mark);
 
 /**
  * Implementation of 'floating enable|disable|toggle'
@@ -253,6 +259,12 @@ void cmd_move_window_to_position(I3_CMD, char *method, char *x, char *y);
 void cmd_move_window_to_center(I3_CMD, char *method);
 
 /**
+ * Implementation of 'move [window|container] [to] position mouse'
+ *
+ */
+void cmd_move_window_to_mouse(I3_CMD);
+
+/**
  * Implementation of 'move scratchpad'.
  *
  */
@@ -263,6 +275,12 @@ void cmd_move_scratchpad(I3_CMD);
  *
  */
 void cmd_scratchpad_show(I3_CMD);
+
+/**
+ * Implementation of 'title_format <format>'
+ *
+ */
+void cmd_title_format(I3_CMD, char *format);
 
 /**
  * Implementation of 'rename workspace <name> to <name>'

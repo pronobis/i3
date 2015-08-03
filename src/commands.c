@@ -4,7 +4,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2012 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * commands.c: all command functions (see commands_parser.c)
  *
@@ -335,7 +335,7 @@ void cmd_criteria_add(I3_CMD, char *ctype, char *cvalue) {
 
     if (strcmp(ctype, "con_id") == 0) {
         char *end;
-        long parsed = strtol(cvalue, &end, 10);
+        long parsed = strtol(cvalue, &end, 0);
         if (parsed == LONG_MIN ||
             parsed == LONG_MAX ||
             parsed < 0 ||
@@ -350,7 +350,7 @@ void cmd_criteria_add(I3_CMD, char *ctype, char *cvalue) {
 
     if (strcmp(ctype, "id") == 0) {
         char *end;
-        long parsed = strtol(cvalue, &end, 10);
+        long parsed = strtol(cvalue, &end, 0);
         if (parsed == LONG_MIN ||
             parsed == LONG_MAX ||
             parsed < 0 ||
@@ -360,6 +360,31 @@ void cmd_criteria_add(I3_CMD, char *ctype, char *cvalue) {
             current_match->id = parsed;
             DLOG("window id as int = %d\n", current_match->id);
         }
+        return;
+    }
+
+    if (strcmp(ctype, "window_type") == 0) {
+        if (strcasecmp(cvalue, "normal") == 0)
+            current_match->window_type = A__NET_WM_WINDOW_TYPE_NORMAL;
+        else if (strcasecmp(cvalue, "dialog") == 0)
+            current_match->window_type = A__NET_WM_WINDOW_TYPE_DIALOG;
+        else if (strcasecmp(cvalue, "utility") == 0)
+            current_match->window_type = A__NET_WM_WINDOW_TYPE_UTILITY;
+        else if (strcasecmp(cvalue, "toolbar") == 0)
+            current_match->window_type = A__NET_WM_WINDOW_TYPE_TOOLBAR;
+        else if (strcasecmp(cvalue, "splash") == 0)
+            current_match->window_type = A__NET_WM_WINDOW_TYPE_SPLASH;
+        else if (strcasecmp(cvalue, "menu") == 0)
+            current_match->window_type = A__NET_WM_WINDOW_TYPE_MENU;
+        else if (strcasecmp(cvalue, "dropdown_menu") == 0)
+            current_match->window_type = A__NET_WM_WINDOW_TYPE_DROPDOWN_MENU;
+        else if (strcasecmp(cvalue, "popup_menu") == 0)
+            current_match->window_type = A__NET_WM_WINDOW_TYPE_POPUP_MENU;
+        else if (strcasecmp(cvalue, "tooltip") == 0)
+            current_match->window_type = A__NET_WM_WINDOW_TYPE_TOOLTIP;
+        else
+            ELOG("unknown window_type value \"%s\"\n", cvalue);
+
         return;
     }
 
@@ -383,6 +408,11 @@ void cmd_criteria_add(I3_CMD, char *ctype, char *cvalue) {
                    strcasecmp(cvalue, "first") == 0) {
             current_match->urgent = U_OLDEST;
         }
+        return;
+    }
+
+    if (strcmp(ctype, "workspace") == 0) {
+        current_match->workspace = regex_new(cvalue);
         return;
     }
 
@@ -791,7 +821,7 @@ void cmd_resize(I3_CMD, char *way, char *direction, char *resize_px, char *resiz
 }
 
 /*
- * Implementation of 'border normal|none|1pixel|toggle|pixel'.
+ * Implementation of 'border normal|pixel [<n>]', 'border none|1pixel|toggle'.
  *
  */
 void cmd_border(I3_CMD, char *border_style_str, char *border_width) {
@@ -1098,16 +1128,14 @@ void cmd_unmark(I3_CMD, char *mark) {
             FREE(con->mark);
             con->mark_changed = true;
         }
-        DLOG("removed all window marks");
+        DLOG("Removed all window marks.\n");
     } else {
-        Con *con;
-        TAILQ_FOREACH(con, &all_cons, all_cons) {
-            if (con->mark && strcmp(con->mark, mark) == 0) {
-                FREE(con->mark);
-                con->mark_changed = true;
-            }
+        Con *con = con_by_mark(mark);
+        if (con != NULL) {
+            FREE(con->mark);
+            con->mark_changed = true;
         }
-        DLOG("removed window mark %s\n", mark);
+        DLOG("Removed window mark \"%s\".\n", mark);
     }
 
     cmd_output->needs_tree_render = true;
@@ -1167,6 +1195,26 @@ void cmd_move_con_to_output(I3_CMD, char *name) {
     cmd_output->needs_tree_render = true;
     // XXX: default reply for now, make this a better reply
     ysuccess(true);
+}
+
+/*
+ * Implementation of 'move [container|window] [to] mark <str>'.
+ *
+ */
+void cmd_move_con_to_mark(I3_CMD, char *mark) {
+    DLOG("moving window to mark \"%s\"\n", mark);
+
+    HANDLE_EMPTY_MATCH;
+
+    bool result = true;
+    owindow *current;
+    TAILQ_FOREACH(current, &owindows, owindows) {
+        DLOG("moving matched window %p / %s to mark \"%s\"\n", current->con, current->con->name, mark);
+        result &= con_move_to_mark(current->con, mark);
+    }
+
+    cmd_output->needs_tree_render = true;
+    ysuccess(result);
 }
 
 /*
@@ -1791,6 +1839,30 @@ void cmd_move_window_to_center(I3_CMD, char *method) {
 }
 
 /*
+ * Implementation of 'move [window|container] [to] position mouse'
+ *
+ */
+void cmd_move_window_to_mouse(I3_CMD) {
+    HANDLE_EMPTY_MATCH;
+
+    owindow *current;
+    TAILQ_FOREACH(current, &owindows, owindows) {
+        Con *floating_con = con_inside_floating(current->con);
+        if (floating_con == NULL) {
+            DLOG("con %p / %s is not floating, cannot move it to the mouse position.\n",
+                 current->con, current->con->name);
+            continue;
+        }
+
+        DLOG("moving floating container %p / %s to cursor position\n", floating_con, floating_con->name);
+        floating_move_to_pointer(floating_con);
+    }
+
+    cmd_output->needs_tree_render = true;
+    ysuccess(true);
+}
+
+/*
  * Implementation of 'move scratchpad'.
  *
  */
@@ -1833,12 +1905,41 @@ void cmd_scratchpad_show(I3_CMD) {
 }
 
 /*
+ * Implementation of 'title_format <format>'
+ *
+ */
+void cmd_title_format(I3_CMD, char *format) {
+    DLOG("setting title_format to \"%s\"\n", format);
+    HANDLE_EMPTY_MATCH;
+
+    owindow *current;
+    TAILQ_FOREACH(current, &owindows, owindows) {
+        if (current->con->window == NULL)
+            continue;
+
+        DLOG("setting title_format for %p / %s\n", current->con, current->con->name);
+        FREE(current->con->window->title_format);
+
+        /* If we only display the title without anything else, we can skip the parsing step,
+         * so we remove the title format altogether. */
+        if (strcasecmp(format, "%title") != 0)
+            current->con->window->title_format = sstrdup(format);
+
+        /* Make sure the window title is redrawn immediately. */
+        current->con->window->name_x_changed = true;
+    }
+
+    cmd_output->needs_tree_render = true;
+    ysuccess(true);
+}
+
+/*
  * Implementation of 'rename workspace [<name>] to <name>'
  *
  */
 void cmd_rename_workspace(I3_CMD, char *old_name, char *new_name) {
     if (strncasecmp(new_name, "__", strlen("__")) == 0) {
-        LOG("Cannot rename workspace to \"%s\": names starting with __ are i3-internal.", new_name);
+        LOG("Cannot rename workspace to \"%s\": names starting with __ are i3-internal.\n", new_name);
         ysuccess(false);
         return;
     }

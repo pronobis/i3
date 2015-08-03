@@ -4,7 +4,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2012 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * startup.c: Startup notification code. Ensures a startup notification context
  *            is setup when launching applications. We store the current
@@ -131,7 +131,7 @@ void startup_sequence_delete(struct Startup_Sequence *sequence) {
  *
  */
 void start_application(const char *command, bool no_startup_id) {
-    SnLauncherContext *context;
+    SnLauncherContext *context = NULL;
 
     if (!no_startup_id) {
         /* Create a startup notification context to monitor the progress of this

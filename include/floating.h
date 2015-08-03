@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2011 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * floating.c: Floating windows.
  *
@@ -69,6 +69,12 @@ bool floating_maybe_reassign_ws(Con *con);
  *
  */
 void floating_center(Con *con, Rect rect);
+
+/**
+ * Moves the given floating con to the current pointer position.
+ *
+ */
+void floating_move_to_pointer(Con *con);
 
 #if 0
 /**

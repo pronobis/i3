@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2013 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * i3-input/main.c: Utility which lets the user input commands and sends them
  *                  to i3.
@@ -344,7 +344,7 @@ static xcb_rectangle_t get_window_position(void) {
         goto free_resources;
     }
 
-    DLOG("Determined coordinates of window with input focus at x = %i / y = %i", coordinates->dst_x, coordinates->dst_y);
+    DLOG("Determined coordinates of window with input focus at x = %i / y = %i.\n", coordinates->dst_x, coordinates->dst_y);
     result.x += coordinates->dst_x;
     result.y += coordinates->dst_y;
 

@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2011 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * string.c: Define an i3String type to automagically handle UTF-8/UCS-2
  *           conversions. Some font backends need UCS-2 (X core fonts),
@@ -12,6 +12,10 @@
 
 #include <stdlib.h>
 #include <string.h>
+
+#if PANGO_SUPPORT
+#include <glib.h>
+#endif
 
 #include "libi3.h"
 
@@ -183,6 +187,18 @@ bool i3string_is_markup(i3String *str) {
  */
 void i3string_set_markup(i3String *str, bool is_markup) {
     str->is_markup = is_markup;
+}
+
+/*
+ * Escape pango markup characters in the given string.
+ */
+i3String *i3string_escape_markup(i3String *str) {
+#if PANGO_SUPPORT
+    const char *text = i3string_as_utf8(str);
+    return i3string_from_utf8(g_markup_escape_text(text, -1));
+#else
+    return str;
+#endif
 }
 
 /*

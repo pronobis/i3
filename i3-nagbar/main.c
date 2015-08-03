@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2013 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * i3-nagbar is a utility which displays a nag message, for example in the case
  * when the user has an error in their configuration file.
@@ -326,7 +326,7 @@ static xcb_rectangle_t get_window_position(void) {
     if (crtc == NULL)
         goto free_resources;
 
-    DLOG("Found primary output on position x = %i / y = %i / w = %i / h = %i",
+    DLOG("Found primary output on position x = %i / y = %i / w = %i / h = %i.\n",
          crtc->x, crtc->y, crtc->width, crtc->height);
     if (crtc->width == 0 || crtc->height == 0) {
         DLOG("Primary output is not active, ignoring it.\n");

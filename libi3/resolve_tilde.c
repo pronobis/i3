@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2015 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  */
 
@@ -23,7 +23,7 @@ char *resolve_tilde(const char *path) {
     char *head, *tail, *result;
 
     tail = strchr(path, '/');
-    head = strndup(path, tail ? (size_t)(tail - path) : strlen(path));
+    head = sstrndup(path, tail ? (size_t)(tail - path) : strlen(path));
 
     int res = glob(head, GLOB_TILDE, NULL, &globbuf);
     free(head);

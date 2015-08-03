@@ -4,7 +4,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2012 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * click.c: Button press (mouse click) events.
  *
@@ -185,12 +185,13 @@ static int route_click(Con *con, xcb_button_press_event_t *event, const bool mod
 
     /* if the user has bound an action to this click, it should override the
      * default behavior. */
-    if (dest == CLICK_DECORATION || dest == CLICK_INSIDE) {
+    if (dest == CLICK_DECORATION || dest == CLICK_INSIDE || dest == CLICK_BORDER) {
         Binding *bind = get_binding_from_xcb_event((xcb_generic_event_t *)event);
         /* clicks over a window decoration will always trigger the binding and
          * clicks on the inside of the window will only trigger a binding if
          * the --whole-window flag was given for the binding. */
-        if (bind && (dest == CLICK_DECORATION || bind->whole_window)) {
+        if (bind && ((dest == CLICK_DECORATION || bind->whole_window) ||
+                     (dest == CLICK_BORDER && bind->border))) {
             CommandResult *result = run_binding(bind, con);
 
             /* ASYNC_POINTER eats the event */
@@ -353,8 +354,8 @@ done:
  */
 int handle_button_press(xcb_button_press_event_t *event) {
     Con *con;
-    DLOG("Button %d %s on window 0x%08x (child 0x%08x) at (%d, %d) (root %d, %d)\n",
-         event->state, (event->response_type == XCB_BUTTON_PRESS ? "press" : "release"),
+    DLOG("Button %d (state %d) %s on window 0x%08x (child 0x%08x) at (%d, %d) (root %d, %d)\n",
+         event->detail, event->state, (event->response_type == XCB_BUTTON_PRESS ? "press" : "release"),
          event->event, event->child, event->event_x, event->event_y, event->root_x,
          event->root_y);
 

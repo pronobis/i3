@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2013 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * libi3: contains functions which are used by i3 *and* accompanying tools such
  * as i3-msg, i3-config-wizard, …
@@ -128,6 +128,13 @@ void *srealloc(void *ptr, size_t size);
 char *sstrdup(const char *str);
 
 /**
+ * Safe-wrapper around strndup which exits if strndup returns NULL (meaning that
+ * there is no more memory available)
+ *
+ */
+char *sstrndup(const char *str, size_t size);
+
+/**
  * Safe-wrapper around asprintf which exits if it returns -1 (meaning that
  * there is no more memory available)
  *
@@ -235,6 +242,11 @@ bool i3string_is_markup(i3String *str);
  * Set whether the i3String should use Pango markup.
  */
 void i3string_set_markup(i3String *str, bool is_markup);
+
+/**
+ * Escape pango markup characters in the given string.
+ */
+i3String *i3string_escape_markup(i3String *str);
 
 /**
  * Returns the number of glyphs in an i3String.
@@ -373,6 +385,12 @@ xcb_char2b_t *convert_utf8_to_ucs2(char *input, size_t *real_strlen);
  *
  */
 void set_font_colors(xcb_gcontext_t gc, uint32_t foreground, uint32_t background);
+
+/**
+ * Returns true if and only if the current font is a pango font.
+ *
+ */
+bool font_is_pango(void);
 
 /**
  * Draws text onto the specified X drawable (normally a pixmap) at the

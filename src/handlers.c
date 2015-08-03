@@ -4,7 +4,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2012 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * handlers.c: Small handlers for various events (keypresses, focus changes,
  *             …).
@@ -215,7 +215,7 @@ static void handle_motion_notify(xcb_motion_notify_event_t *event) {
 
     /* Skip events where the pointer was over a child window, we are only
      * interested in events on the root window. */
-    if (event->child != 0)
+    if (event->child != XCB_NONE)
         return;
 
     Con *con;
@@ -228,7 +228,7 @@ static void handle_motion_notify(xcb_motion_notify_event_t *event) {
     if (config.disable_focus_follows_mouse)
         return;
 
-    if (con->layout != L_DEFAULT)
+    if (con->layout != L_DEFAULT && con->layout != L_SPLITV && con->layout != L_SPLITH)
         return;
 
     /* see over which rect the user is */
@@ -245,8 +245,6 @@ static void handle_motion_notify(xcb_motion_notify_event_t *event) {
         x_push_changes(croot);
         return;
     }
-
-    return;
 }
 
 /*
@@ -753,7 +751,7 @@ static void handle_client_message(xcb_client_message_event_t *event) {
                 DLOG("Marking con = %p urgent\n", con);
                 con_set_urgency(con, true);
             } else
-                DLOG("Ignoring request for con = %p", con);
+                DLOG("Ignoring request for con = %p.\n", con);
         }
 
         tree_render();
@@ -880,7 +878,7 @@ static void handle_client_message(xcb_client_message_event_t *event) {
                 floating_drag_window(con->parent, &fake);
                 break;
             case _NET_WM_MOVERESIZE_SIZE_TOPLEFT... _NET_WM_MOVERESIZE_SIZE_LEFT:
-                floating_resize_window(con->parent, FALSE, &fake);
+                floating_resize_window(con->parent, false, &fake);
                 break;
             default:
                 DLOG("_NET_WM_MOVERESIZE direction %d not implemented\n", direction);
@@ -892,15 +890,15 @@ static void handle_client_message(xcb_client_message_event_t *event) {
     }
 }
 
-#if 0
-int handle_window_type(void *data, xcb_connection_t *conn, uint8_t state, xcb_window_t window,
-                        xcb_atom_t atom, xcb_get_property_reply_t *property) {
-        /* TODO: Implement this one. To do this, implement a little test program which sleep(1)s
-         before changing this property. */
-        ELOG("_NET_WM_WINDOW_TYPE changed, this is not yet implemented.\n");
-        return 0;
+bool handle_window_type(void *data, xcb_connection_t *conn, uint8_t state, xcb_window_t window,
+                        xcb_atom_t atom, xcb_get_property_reply_t *reply) {
+    Con *con;
+    if ((con = con_by_window_id(window)) == NULL || con->window == NULL)
+        return false;
+
+    window_update_type(con->window, reply);
+    return true;
 }
-#endif
 
 /*
  * Handles the size hints set by a window, but currently only the part necessary for displaying
@@ -1264,7 +1262,8 @@ static struct property_handler_t property_handlers[] = {
     {0, UINT_MAX, handle_transient_for},
     {0, 128, handle_windowrole_change},
     {0, 128, handle_class_change},
-    {0, UINT_MAX, handle_strut_partial_change}};
+    {0, UINT_MAX, handle_strut_partial_change},
+    {0, UINT_MAX, handle_window_type}};
 #define NUM_HANDLERS (sizeof(property_handlers) / sizeof(struct property_handler_t))
 
 /*
@@ -1284,6 +1283,7 @@ void property_handlers_init(void) {
     property_handlers[6].atom = A_WM_WINDOW_ROLE;
     property_handlers[7].atom = XCB_ATOM_WM_CLASS;
     property_handlers[8].atom = A__NET_WM_STRUT_PARTIAL;
+    property_handlers[9].atom = A__NET_WM_WINDOW_TYPE;
 }
 
 static void property_notify(uint8_t state, xcb_window_t window, xcb_atom_t atom) {
@@ -1319,7 +1319,9 @@ static void property_notify(uint8_t state, xcb_window_t window, xcb_atom_t atom)
  *
  */
 void handle_event(int type, xcb_generic_event_t *event) {
-    DLOG("event type %d, xkb_base %d\n", type, xkb_base);
+    if (type != XCB_MOTION_NOTIFY)
+        DLOG("event type %d, xkb_base %d\n", type, xkb_base);
+
     if (randr_base > -1 &&
         type == randr_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY) {
         handle_screen_change(event);

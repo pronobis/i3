@@ -4,7 +4,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2011 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * floating.c: Floating windows.
  *
@@ -426,6 +426,42 @@ void floating_center(Con *con, Rect rect) {
     con->rect.y = rect.y + (rect.height / 2) - (con->rect.height / 2);
 }
 
+/*
+ * Moves the given floating con to the current pointer position.
+ *
+ */
+void floating_move_to_pointer(Con *con) {
+    assert(con->type == CT_FLOATING_CON);
+
+    xcb_query_pointer_reply_t *reply = xcb_query_pointer_reply(conn, xcb_query_pointer(conn, root), NULL);
+    if (reply == NULL) {
+        ELOG("could not query pointer position, not moving this container\n");
+        return;
+    }
+
+    Output *output = get_output_containing(reply->root_x, reply->root_y);
+    if (output == NULL) {
+        ELOG("The pointer is not on any output, cannot move the container here.\n");
+        return;
+    }
+
+    /* Determine where to put the window. */
+    int32_t x = reply->root_x - con->rect.width / 2;
+    int32_t y = reply->root_y - con->rect.height / 2;
+    FREE(reply);
+
+    /* Correct target coordinates to be in-bounds. */
+    x = MAX(x, (int32_t)output->rect.x);
+    y = MAX(y, (int32_t)output->rect.y);
+    if (x + con->rect.width > output->rect.x + output->rect.width)
+        x = output->rect.x + output->rect.width - con->rect.width;
+    if (y + con->rect.height > output->rect.y + output->rect.height)
+        y = output->rect.y + output->rect.height - con->rect.height;
+
+    /* Update container's coordinates to position it correctly. */
+    floating_reposition(con, (Rect){x, y, con->rect.width, con->rect.height});
+}
+
 DRAGGING_CB(drag_window_callback) {
     const struct xcb_button_press_event_t *event = extra;
 
@@ -627,7 +663,7 @@ static void xcb_drag_check_cb(EV_P_ ev_check *w, int revents) {
                 break;
 
             case XCB_KEY_PRESS:
-                DLOG("A key was pressed during drag, reverting changes.");
+                DLOG("A key was pressed during drag, reverting changes.\n");
                 dragloop->result = DRAG_REVERT;
                 handle_event(type, event);
                 break;

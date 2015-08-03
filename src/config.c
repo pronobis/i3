@@ -4,7 +4,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2012 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * config.c: Configuration file (calling the parser (src/config_parser.c) with
  *           the correct path, switching key bindings mode).
@@ -130,6 +130,9 @@ void load_configuration(xcb_connection_t *conn, const char *override_configpath,
             FREE(barconfig->colors.urgent_workspace_border);
             FREE(barconfig->colors.urgent_workspace_bg);
             FREE(barconfig->colors.urgent_workspace_text);
+            FREE(barconfig->colors.binding_mode_border);
+            FREE(barconfig->colors.binding_mode_bg);
+            FREE(barconfig->colors.binding_mode_text);
             TAILQ_REMOVE(&barconfigs, barconfig, configs);
             FREE(barconfig);
         }
@@ -202,6 +205,10 @@ void load_configuration(xcb_connection_t *conn, const char *override_configpath,
     /* Set default urgency reset delay to 500ms */
     if (config.workspace_urgency_timer == 0)
         config.workspace_urgency_timer = 0.5;
+
+    /* Set default zero displays exit delay to 500ms */
+    if (config.zero_disp_exit_timer_ms == 0)
+        config.zero_disp_exit_timer_ms = 500;
 
     parse_configuration(override_configpath, true);
 

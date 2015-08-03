@@ -4,7 +4,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2011 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * A "match" is a data structure which acts like a mask or expression to match
  * certain windows or not. For example, when using commands, you can specify a
@@ -27,8 +27,10 @@
  */
 void match_init(Match *match) {
     memset(match, 0, sizeof(Match));
-    match->dock = -1;
+    match->dock = M_DONTCHECK;
     match->urgent = U_DONTCHECK;
+    /* we use this as the placeholder value for "not set". */
+    match->window_type = UINT32_MAX;
 }
 
 /*
@@ -46,8 +48,10 @@ bool match_is_empty(Match *match) {
             match->class == NULL &&
             match->instance == NULL &&
             match->window_role == NULL &&
+            match->workspace == NULL &&
             match->urgent == U_DONTCHECK &&
             match->id == XCB_NONE &&
+            match->window_type == UINT32_MAX &&
             match->con_id == NULL &&
             match->dock == -1 &&
             match->floating == M_ANY);
@@ -75,6 +79,7 @@ void match_copy(Match *dest, Match *src) {
     DUPLICATE_REGEX(class);
     DUPLICATE_REGEX(instance);
     DUPLICATE_REGEX(window_role);
+    DUPLICATE_REGEX(workspace);
 }
 
 /*
@@ -129,6 +134,14 @@ bool match_matches_window(Match *match, i3Window *window) {
         }
     }
 
+    if (match->window_type != UINT32_MAX) {
+        if (window->window_type == match->window_type) {
+            LOG("window_type matches (%i)\n", match->window_type);
+        } else {
+            return false;
+        }
+    }
+
     Con *con = NULL;
     if (match->urgent == U_LATEST) {
         /* if the window isn't urgent, no sense in searching */
@@ -161,7 +174,22 @@ bool match_matches_window(Match *match, i3Window *window) {
         LOG("urgent matches oldest\n");
     }
 
-    if (match->dock != -1) {
+    if (match->workspace != NULL) {
+        if ((con = con_by_window_id(window->id)) == NULL)
+            return false;
+
+        Con *ws = con_get_workspace(con);
+        if (ws == NULL)
+            return false;
+
+        if (regex_matches(match->workspace, ws->name)) {
+            LOG("workspace matches (%s)\n", ws->name);
+        } else {
+            return false;
+        }
+    }
+
+    if (match->dock != M_DONTCHECK) {
         if ((window->dock == W_DOCK_TOP && match->dock == M_DOCK_TOP) ||
             (window->dock == W_DOCK_BOTTOM && match->dock == M_DOCK_BOTTOM) ||
             ((window->dock == W_DOCK_TOP || window->dock == W_DOCK_BOTTOM) &&

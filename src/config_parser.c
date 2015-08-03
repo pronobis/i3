@@ -4,7 +4,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2013 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * config_parser.c: hand-written parser to parse configuration directives.
  *
@@ -837,11 +837,11 @@ static char *migrate_config(char *input, off_t size) {
  */
 bool parse_file(const char *f, bool use_nagbar) {
     SLIST_HEAD(variables_head, Variable) variables = SLIST_HEAD_INITIALIZER(&variables);
-    int fd, ret, read_bytes = 0;
+    int fd;
     struct stat stbuf;
     char *buf;
     FILE *fstr;
-    char buffer[1026], key[512], value[512];
+    char buffer[4096], key[512], value[512], *continuation = NULL;
 
     if ((fd = open(f, O_RDONLY)) == -1)
         die("Could not open configuration file: %s\n", strerror(errno));
@@ -850,27 +850,30 @@ bool parse_file(const char *f, bool use_nagbar) {
         die("Could not fstat file: %s\n", strerror(errno));
 
     buf = scalloc((stbuf.st_size + 1) * sizeof(char));
-    while (read_bytes < stbuf.st_size) {
-        if ((ret = read(fd, buf + read_bytes, (stbuf.st_size - read_bytes))) < 0)
-            die("Could not read(): %s\n", strerror(errno));
-        read_bytes += ret;
-    }
-
-    if (lseek(fd, 0, SEEK_SET) == (off_t)-1)
-        die("Could not lseek: %s\n", strerror(errno));
 
     if ((fstr = fdopen(fd, "r")) == NULL)
         die("Could not fdopen: %s\n", strerror(errno));
 
     while (!feof(fstr)) {
-        if (fgets(buffer, 1024, fstr) == NULL) {
+        if (!continuation)
+            continuation = buffer;
+        if (fgets(continuation, sizeof(buffer) - (continuation - buffer), fstr) == NULL) {
             if (feof(fstr))
                 break;
             die("Could not read configuration file\n");
         }
+        if (buffer[strlen(buffer) - 1] != '\n') {
+            ELOG("Your line continuation is too long, it exceeds %zd bytes\n", sizeof(buffer));
+        }
+        continuation = strstr(buffer, "\\\n");
+        if (continuation) {
+            continue;
+        }
+
+        strncpy(buf + strlen(buf), buffer, strlen(buffer) + 1);
 
         /* sscanf implicitly strips whitespace. Also, we skip comments and empty lines. */
-        if (sscanf(buffer, "%s %[^\n]", key, value) < 1 ||
+        if (sscanf(buffer, "%511s %511[^\n]", key, value) < 1 ||
             key[0] == '#' || strlen(key) < 3)
             continue;
 
@@ -996,7 +999,7 @@ bool parse_file(const char *f, bool use_nagbar) {
     check_for_duplicate_bindings(context);
 
     if (use_nagbar && (context->has_errors || context->has_warnings)) {
-        ELOG("FYI: You are using i3 version " I3_VERSION "\n");
+        ELOG("FYI: You are using i3 version %s\n", i3_version);
         if (version == 3)
             ELOG("Please convert your configfile first, then fix any remaining errors (see above).\n");
 

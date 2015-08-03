@@ -2,7 +2,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2012 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * include/data.h: This file defines all data structures used by i3
  *
@@ -256,6 +256,10 @@ struct Binding {
     } release;
 
     /** If this is true for a mouse binding, the binding should be executed
+     * when the button is pressed over the window border. */
+    bool border;
+
+    /** If this is true for a mouse binding, the binding should be executed
      * when the button is pressed over any part of the window, not just the
      * title bar (default). */
     bool whole_window;
@@ -359,6 +363,8 @@ struct Window {
 
     /** The name of the window. */
     i3String *name;
+    /** The format with which the window's name should be displayed. */
+    char *title_format;
 
     /** The WM_WINDOW_ROLE of this window (for example, the pidgin buddy window
      * sets "buddy list"). Useful to match specific windows in assignments or
@@ -377,6 +383,9 @@ struct Window {
     /** Whether this window accepts focus. We store this inverted so that the
      * default will be 'accepts focus'. */
     bool doesnt_accept_focus;
+
+    /** The _NET_WM_WINDOW_TYPE for this window. */
+    xcb_atom_t window_type;
 
     /** Whether the window says it is a dock window */
     enum { W_NODOCK = 0,
@@ -408,6 +417,8 @@ struct Match {
     struct regex *instance;
     struct regex *mark;
     struct regex *window_role;
+    struct regex *workspace;
+    xcb_atom_t window_type;
     enum {
         U_DONTCHECK = -1,
         U_LATEST = 0,

@@ -4,7 +4,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2012 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * ipc.c: UNIX domain socket IPC (initialization, client handling, protocol).
  *
@@ -469,6 +469,28 @@ void dump_node(yajl_gen gen, struct Con *con, bool inplace_restart) {
     y(map_close);
 }
 
+static void dump_bar_bindings(yajl_gen gen, Barconfig *config) {
+    if (TAILQ_EMPTY(&(config->bar_bindings)))
+        return;
+
+    ystr("bindings");
+    y(array_open);
+
+    struct Barbinding *current;
+    TAILQ_FOREACH(current, &(config->bar_bindings), bindings) {
+        y(map_open);
+
+        ystr("input_code");
+        y(integer, current->input_code);
+        ystr("command");
+        ystr(current->command);
+
+        y(map_close);
+    }
+
+    y(array_close);
+}
+
 static void dump_bar_config(yajl_gen gen, Barconfig *config) {
     y(map_open);
 
@@ -492,6 +514,10 @@ static void dump_bar_config(yajl_gen gen, Barconfig *config) {
     } while (0)
 
     YSTR_IF_SET(tray_output);
+
+    ystr("tray_padding");
+    y(integer, config->tray_padding);
+
     YSTR_IF_SET(socket_path);
 
     ystr("mode");
@@ -549,15 +575,7 @@ static void dump_bar_config(yajl_gen gen, Barconfig *config) {
             break;
     }
 
-    if (config->wheel_up_cmd) {
-        ystr("wheel_up_cmd");
-        ystr(config->wheel_up_cmd);
-    }
-
-    if (config->wheel_down_cmd) {
-        ystr("wheel_down_cmd");
-        ystr(config->wheel_down_cmd);
-    }
+    dump_bar_bindings(gen, config);
 
     ystr("position");
     if (config->position == P_BOTTOM)
@@ -611,6 +629,9 @@ static void dump_bar_config(yajl_gen gen, Barconfig *config) {
     YSTR_IF_SET(urgent_workspace_border);
     YSTR_IF_SET(urgent_workspace_bg);
     YSTR_IF_SET(urgent_workspace_text);
+    YSTR_IF_SET(binding_mode_border);
+    YSTR_IF_SET(binding_mode_bg);
+    YSTR_IF_SET(binding_mode_text);
     y(map_close);
 
     y(map_close);
@@ -791,7 +812,10 @@ IPC_HANDLER(get_version) {
     y(integer, PATCH_VERSION);
 
     ystr("human_readable");
-    ystr(I3_VERSION);
+    ystr(i3_version);
+
+    ystr("loaded_config_file_name");
+    ystr(current_configpath);
 
     y(map_close);
 

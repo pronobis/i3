@@ -4,7 +4,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2012 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * x.c: Interface to X11, transfers our in-memory state to X11 (see also
  *      render.c). Basically a big state machine.
@@ -36,6 +36,7 @@ typedef struct con_state {
     bool mapped;
     bool unmap_now;
     bool child_mapped;
+    bool is_hidden;
 
     /** The con for which this state is. */
     Con *con;
@@ -301,6 +302,45 @@ void x_window_kill(xcb_window_t window, kill_window_t kill_window) {
     free(event);
 }
 
+static i3String *parse_title_format(char *format, i3String *_title) {
+    /* We need to ensure that we only escape the window title if pango
+     * is used by the current font. */
+    const bool is_markup = font_is_pango();
+
+    i3String *title = is_markup ? i3string_escape_markup(_title) : _title;
+    const char *escaped_title = i3string_as_utf8(title);
+
+    /* We have to first iterate over the string to see how much buffer space
+     * we need to allocate. */
+    int buffer_len = strlen(format) + 1;
+    for (char *walk = format; *walk != '\0'; walk++) {
+        if (STARTS_WITH(walk, "%title")) {
+            buffer_len = buffer_len - strlen("%title") + strlen(escaped_title);
+            walk += strlen("%title") - 1;
+        }
+    }
+
+    /* Now we can parse the format string. */
+    char buffer[buffer_len];
+    char *outwalk = buffer;
+    for (char *walk = format; *walk != '\0'; walk++) {
+        if (*walk != '%') {
+            *(outwalk++) = *walk;
+            continue;
+        }
+
+        if (STARTS_WITH(walk + 1, "title")) {
+            outwalk += sprintf(outwalk, "%s", escaped_title);
+            walk += strlen("title");
+        }
+    }
+    *outwalk = '\0';
+
+    i3String *formatted = i3string_from_utf8(buffer);
+    i3string_set_markup(formatted, is_markup);
+    return formatted;
+}
+
 /*
  * Draws the decoration of the given container onto its parent.
  *
@@ -548,10 +588,13 @@ void x_draw_decoration(Con *con) {
         I3STRING_FREE(mark);
     }
 
-    draw_text(win->name,
+    i3String *title = win->title_format == NULL ? win->name : parse_title_format(win->title_format, win->name);
+    draw_text(title,
               parent->pixmap, parent->pm_gc,
               con->deco_rect.x + logical_px(2) + indent_px, con->deco_rect.y + text_offset_y,
               con->deco_rect.width - logical_px(2) - indent_px - mark_width - logical_px(2));
+    if (win->title_format != NULL)
+        I3STRING_FREE(title);
 
 after_title:
     /* Since we don’t clip the text at all, it might in some cases be painted
@@ -609,6 +652,33 @@ void x_deco_recurse(Con *con) {
     if ((con->type != CT_ROOT && con->type != CT_OUTPUT) &&
         (!leaf || con->mapped))
         x_draw_decoration(con);
+}
+
+/*
+ * Sets or removes the _NET_WM_STATE_HIDDEN property on con if necessary.
+ *
+ */
+static void set_hidden_state(Con *con) {
+    if (con->window == NULL) {
+        return;
+    }
+
+    con_state *state = state_for_frame(con->frame);
+    bool should_be_hidden = con_is_hidden(con);
+    if (should_be_hidden == state->is_hidden)
+        return;
+
+    unsigned int num = 0;
+    uint32_t values[1];
+    if (should_be_hidden) {
+        DLOG("setting _NET_WM_STATE_HIDDEN for con = %p\n", con);
+        values[num++] = A__NET_WM_STATE_HIDDEN;
+    } else {
+        DLOG("removing _NET_WM_STATE_HIDDEN for con = %p\n", con);
+    }
+
+    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, con->window->id, A__NET_WM_STATE, XCB_ATOM_ATOM, 32, num, values);
+    state->is_hidden = should_be_hidden;
 }
 
 /*
@@ -813,6 +883,8 @@ void x_push_node(Con *con) {
         DLOG("Sending fake configure notify\n");
         fake_absolute_configure_notify(con);
     }
+
+    set_hidden_state(con);
 
     /* Handle all children and floating windows of this node. We recurse
      * in focus order to display the focused client in a stack first when

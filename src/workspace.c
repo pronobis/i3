@@ -4,7 +4,7 @@
  * vim:ts=4:sw=4:expandtab
  *
  * i3 - an improved dynamic tiling window manager
- * © 2009-2011 Michael Stapelberg and contributors (see also: LICENSE)
+ * © 2009 Michael Stapelberg and contributors (see also: LICENSE)
  *
  * workspace.c: Modifying workspaces, accessing them, moving containers to
  *              workspaces.
@@ -29,6 +29,7 @@ static void _workspace_apply_default_orientation(Con *ws) {
     if (config.default_orientation == NO_ORIENTATION) {
         Con *output = con_get_output(ws);
         ws->layout = (output->rect.height > output->rect.width) ? L_SPLITV : L_SPLITH;
+        ws->rect = output->rect;
         DLOG("Auto orientation. Workspace size set to (%d,%d), setting layout to %d.\n",
              output->rect.width, output->rect.height, ws->layout);
     } else {
@@ -128,7 +129,7 @@ Con *create_workspace_on_output(Output *output, Con *content) {
             continue;
         DLOG("relevant command = %s\n", bind->command);
         const char *target = bind->command + strlen("workspace ");
-        while ((*target == ' ' || *target == '\t') && target != '\0')
+        while (*target == ' ' || *target == '\t')
             target++;
         /* We check if this is the workspace
          * next/prev/next_on_output/prev_on_output/back_and_forth/number command.
@@ -321,17 +322,17 @@ static void workspace_reassign_sticky(Con *con) {
 static void workspace_defer_update_urgent_hint_cb(EV_P_ ev_timer *w, int revents) {
     Con *con = w->data;
 
+    ev_timer_stop(main_loop, con->urgency_timer);
+    FREE(con->urgency_timer);
+
     if (con->urgent) {
         DLOG("Resetting urgency flag of con %p by timer\n", con);
-        con->urgent = false;
+        con_set_urgency(con, false);
         con_update_parents_urgency(con);
         workspace_update_urgent_flag(con_get_workspace(con));
         ipc_send_window_event("urgent", con);
         tree_render();
     }
-
-    ev_timer_stop(main_loop, con->urgency_timer);
-    FREE(con->urgency_timer);
 }
 
 static void _workspace_show(Con *workspace) {
@@ -728,7 +729,7 @@ workspace_prev_on_output_end:
  */
 void workspace_back_and_forth(void) {
     if (!previous_workspace_name) {
-        DLOG("No previous workspace name set. Not switching.");
+        DLOG("No previous workspace name set. Not switching.\n");
         return;
     }
 
@@ -741,7 +742,7 @@ void workspace_back_and_forth(void) {
  */
 Con *workspace_back_and_forth_get(void) {
     if (!previous_workspace_name) {
-        DLOG("no previous workspace name set.");
+        DLOG("No previous workspace name set.\n");
         return NULL;
     }
 
