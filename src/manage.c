@@ -436,12 +436,12 @@ void manage_window(xcb_window_t window, xcb_get_window_attributes_cookie_t cooki
     /* Plasma windows set their geometry in WM_SIZE_HINTS. */
     if ((wm_size_hints.flags & XCB_ICCCM_SIZE_HINT_US_POSITION || wm_size_hints.flags & XCB_ICCCM_SIZE_HINT_P_POSITION) &&
         (wm_size_hints.flags & XCB_ICCCM_SIZE_HINT_US_SIZE || wm_size_hints.flags & XCB_ICCCM_SIZE_HINT_P_SIZE)) {
-      DLOG("We are setting geometry according to wm_size_hints x=%d y=%d w=%d h=%d\n",
-           wm_size_hints.x, wm_size_hints.y, wm_size_hints.width, wm_size_hints.height);
-      geom->x = wm_size_hints.x;
-      geom->y = wm_size_hints.y;
-      geom->width = wm_size_hints.width;
-      geom->height = wm_size_hints.height;
+        DLOG("We are setting geometry according to wm_size_hints x=%d y=%d w=%d h=%d\n",
+             wm_size_hints.x, wm_size_hints.y, wm_size_hints.width, wm_size_hints.height);
+        geom->x = wm_size_hints.x;
+        geom->y = wm_size_hints.y;
+        geom->width = wm_size_hints.width;
+        geom->height = wm_size_hints.height;
     }
 
     /* Store the requested geometry. The width/height gets raised to at least
