@@ -29,6 +29,7 @@ CFGFUN(criteria_init, int _state) {
     criteria_next_state = _state;
 
     DLOG("Initializing criteria, current_match = %p, state = %d\n", current_match, _state);
+    match_free(current_match);
     match_init(current_match);
 }
 
@@ -42,110 +43,8 @@ CFGFUN(criteria_pop_state) {
  *
  */
 CFGFUN(criteria_add, const char *ctype, const char *cvalue) {
-    DLOG("ctype=*%s*, cvalue=*%s*\n", ctype, cvalue);
-
-    if (strcmp(ctype, "class") == 0) {
-        current_match->class = regex_new(cvalue);
-        return;
-    }
-
-    if (strcmp(ctype, "instance") == 0) {
-        current_match->instance = regex_new(cvalue);
-        return;
-    }
-
-    if (strcmp(ctype, "window_role") == 0) {
-        current_match->window_role = regex_new(cvalue);
-        return;
-    }
-
-    if (strcmp(ctype, "con_id") == 0) {
-        char *end;
-        long parsed = strtol(cvalue, &end, 10);
-        if (parsed == LONG_MIN ||
-            parsed == LONG_MAX ||
-            parsed < 0 ||
-            (end && *end != '\0')) {
-            ELOG("Could not parse con id \"%s\"\n", cvalue);
-        } else {
-            current_match->con_id = (Con *)parsed;
-            DLOG("id as int = %p\n", current_match->con_id);
-        }
-        return;
-    }
-
-    if (strcmp(ctype, "id") == 0) {
-        char *end;
-        long parsed = strtol(cvalue, &end, 10);
-        if (parsed == LONG_MIN ||
-            parsed == LONG_MAX ||
-            parsed < 0 ||
-            (end && *end != '\0')) {
-            ELOG("Could not parse window id \"%s\"\n", cvalue);
-        } else {
-            current_match->id = parsed;
-            DLOG("window id as int = %d\n", current_match->id);
-        }
-        return;
-    }
-
-    if (strcmp(ctype, "window_type") == 0) {
-        if (strcasecmp(cvalue, "normal") == 0)
-            current_match->window_type = A__NET_WM_WINDOW_TYPE_NORMAL;
-        else if (strcasecmp(cvalue, "dialog") == 0)
-            current_match->window_type = A__NET_WM_WINDOW_TYPE_DIALOG;
-        else if (strcasecmp(cvalue, "utility") == 0)
-            current_match->window_type = A__NET_WM_WINDOW_TYPE_UTILITY;
-        else if (strcasecmp(cvalue, "toolbar") == 0)
-            current_match->window_type = A__NET_WM_WINDOW_TYPE_TOOLBAR;
-        else if (strcasecmp(cvalue, "splash") == 0)
-            current_match->window_type = A__NET_WM_WINDOW_TYPE_SPLASH;
-        else if (strcasecmp(cvalue, "menu") == 0)
-            current_match->window_type = A__NET_WM_WINDOW_TYPE_MENU;
-        else if (strcasecmp(cvalue, "dropdown_menu") == 0)
-            current_match->window_type = A__NET_WM_WINDOW_TYPE_DROPDOWN_MENU;
-        else if (strcasecmp(cvalue, "popup_menu") == 0)
-            current_match->window_type = A__NET_WM_WINDOW_TYPE_POPUP_MENU;
-        else if (strcasecmp(cvalue, "tooltip") == 0)
-            current_match->window_type = A__NET_WM_WINDOW_TYPE_TOOLTIP;
-        else
-            ELOG("unknown window_type value \"%s\"\n", cvalue);
-
-        return;
-    }
-
-    if (strcmp(ctype, "con_mark") == 0) {
-        current_match->mark = regex_new(cvalue);
-        return;
-    }
-
-    if (strcmp(ctype, "title") == 0) {
-        current_match->title = regex_new(cvalue);
-        return;
-    }
-
-    if (strcmp(ctype, "urgent") == 0) {
-        if (strcasecmp(cvalue, "latest") == 0 ||
-            strcasecmp(cvalue, "newest") == 0 ||
-            strcasecmp(cvalue, "recent") == 0 ||
-            strcasecmp(cvalue, "last") == 0) {
-            current_match->urgent = U_LATEST;
-        } else if (strcasecmp(cvalue, "oldest") == 0 ||
-                   strcasecmp(cvalue, "first") == 0) {
-            current_match->urgent = U_OLDEST;
-        }
-        return;
-    }
-
-    if (strcmp(ctype, "workspace") == 0) {
-        current_match->workspace = regex_new(cvalue);
-        return;
-    }
-
-    ELOG("Unknown criterion: %s\n", ctype);
+    match_parse_property(current_match, ctype, cvalue);
 }
-
-/* TODO: refactor the above criteria code into a single file (with src/commands.c). */
 
 /*******************************************************************************
  * Utility functions
@@ -161,32 +60,40 @@ static bool eval_boolstr(const char *str) {
 }
 
 /*
- * A utility function to convert a string of modifiers to the corresponding bit
- * mask.
+ * A utility function to convert a string containing the group and modifiers to
+ * the corresponding bit mask.
  */
-uint32_t modifiers_from_str(const char *str) {
+i3_event_state_mask_t event_state_from_str(const char *str) {
     /* It might be better to use strtok() here, but the simpler strstr() should
      * do for now. */
-    uint32_t result = 0;
+    i3_event_state_mask_t result = 0;
     if (str == NULL)
         return result;
     if (strstr(str, "Mod1") != NULL)
-        result |= BIND_MOD1;
+        result |= XCB_KEY_BUT_MASK_MOD_1;
     if (strstr(str, "Mod2") != NULL)
-        result |= BIND_MOD2;
+        result |= XCB_KEY_BUT_MASK_MOD_2;
     if (strstr(str, "Mod3") != NULL)
-        result |= BIND_MOD3;
+        result |= XCB_KEY_BUT_MASK_MOD_3;
     if (strstr(str, "Mod4") != NULL)
-        result |= BIND_MOD4;
+        result |= XCB_KEY_BUT_MASK_MOD_4;
     if (strstr(str, "Mod5") != NULL)
-        result |= BIND_MOD5;
+        result |= XCB_KEY_BUT_MASK_MOD_5;
     if (strstr(str, "Control") != NULL ||
         strstr(str, "Ctrl") != NULL)
-        result |= BIND_CONTROL;
+        result |= XCB_KEY_BUT_MASK_CONTROL;
     if (strstr(str, "Shift") != NULL)
-        result |= BIND_SHIFT;
-    if (strstr(str, "Mode_switch") != NULL)
-        result |= BIND_MODE_SWITCH;
+        result |= XCB_KEY_BUT_MASK_SHIFT;
+
+    if (strstr(str, "Group1") != NULL)
+        result |= (I3_XKB_GROUP_MASK_1 << 16);
+    if (strstr(str, "Group2") != NULL ||
+        strstr(str, "Mode_switch") != NULL)
+        result |= (I3_XKB_GROUP_MASK_2 << 16);
+    if (strstr(str, "Group3") != NULL)
+        result |= (I3_XKB_GROUP_MASK_3 << 16);
+    if (strstr(str, "Group4") != NULL)
+        result |= (I3_XKB_GROUP_MASK_4 << 16);
     return result;
 }
 
@@ -202,7 +109,7 @@ CFGFUN(font, const char *font) {
 }
 
 CFGFUN(binding, const char *bindtype, const char *modifiers, const char *key, const char *release, const char *border, const char *whole_window, const char *command) {
-    configure_binding(bindtype, modifiers, key, release, border, whole_window, command, DEFAULT_BINDING_MODE);
+    configure_binding(bindtype, modifiers, key, release, border, whole_window, command, DEFAULT_BINDING_MODE, false);
 }
 
 /*******************************************************************************
@@ -210,12 +117,13 @@ CFGFUN(binding, const char *bindtype, const char *modifiers, const char *key, co
  ******************************************************************************/
 
 static char *current_mode;
+static bool current_mode_pango_markup;
 
 CFGFUN(mode_binding, const char *bindtype, const char *modifiers, const char *key, const char *release, const char *border, const char *whole_window, const char *command) {
-    configure_binding(bindtype, modifiers, key, release, border, whole_window, command, current_mode);
+    configure_binding(bindtype, modifiers, key, release, border, whole_window, command, current_mode, current_mode_pango_markup);
 }
 
-CFGFUN(enter_mode, const char *modename) {
+CFGFUN(enter_mode, const char *pango_markup, const char *modename) {
     if (strcasecmp(modename, DEFAULT_BINDING_MODE) == 0) {
         ELOG("You cannot use the name %s for your mode\n", DEFAULT_BINDING_MODE);
         exit(1);
@@ -223,6 +131,7 @@ CFGFUN(enter_mode, const char *modename) {
     DLOG("\t now in mode %s\n", modename);
     FREE(current_mode);
     current_mode = sstrdup(modename);
+    current_mode_pango_markup = (pango_markup != NULL);
 }
 
 CFGFUN(exec, const char *exectype, const char *no_startup_id, const char *command) {
@@ -242,7 +151,7 @@ CFGFUN(for_window, const char *command) {
         return;
     }
     DLOG("\t should execute command %s for the criteria mentioned above\n", command);
-    Assignment *assignment = scalloc(sizeof(Assignment));
+    Assignment *assignment = scalloc(1, sizeof(Assignment));
     assignment->type = A_COMMAND;
     match_copy(&(assignment->match), current_match);
     assignment->dest.command = sstrdup(command);
@@ -260,7 +169,7 @@ CFGFUN(floating_maximum_size, const long width, const long height) {
 }
 
 CFGFUN(floating_modifier, const char *modifiers) {
-    config.floating_modifier = modifiers_from_str(modifiers);
+    config.floating_modifier = event_state_from_str(modifiers);
 }
 
 CFGFUN(default_orientation, const char *orientation) {
@@ -359,10 +268,6 @@ CFGFUN(force_display_urgency_hint, const long duration_ms) {
     config.workspace_urgency_timer = duration_ms / 1000.0;
 }
 
-CFGFUN(delay_exit_on_zero_displays, const long duration_ms) {
-    config.zero_disp_exit_timer_ms = duration_ms;
-}
-
 CFGFUN(focus_on_window_activation, const char *mode) {
     if (strcmp(mode, "smart") == 0)
         config.focus_on_window_activation = FOWA_SMART;
@@ -400,7 +305,7 @@ CFGFUN(workspace, const char *workspace, const char *output) {
         }
     }
     if (!duplicate) {
-        assignment = scalloc(sizeof(struct Workspace_Assignment));
+        assignment = scalloc(1, sizeof(struct Workspace_Assignment));
         assignment->name = sstrdup(workspace);
         assignment->output = sstrdup(output);
         TAILQ_INSERT_TAIL(&ws_assignments, assignment, ws_assignments);
@@ -458,7 +363,7 @@ CFGFUN(assign, const char *workspace) {
         return;
     }
     DLOG("New assignment, using above criteria, to workspace \"%s\".\n", workspace);
-    Assignment *assignment = scalloc(sizeof(Assignment));
+    Assignment *assignment = scalloc(1, sizeof(Assignment));
     match_copy(&(assignment->match), current_match);
     assignment->type = A_TO_WORKSPACE;
     assignment->dest.workspace = sstrdup(workspace);
@@ -472,7 +377,7 @@ CFGFUN(no_focus) {
     }
 
     DLOG("New assignment, using above criteria, to ignore focus on manage.\n");
-    Assignment *assignment = scalloc(sizeof(Assignment));
+    Assignment *assignment = scalloc(1, sizeof(Assignment));
     match_copy(&(assignment->match), current_match);
     assignment->type = A_NO_FOCUS;
     TAILQ_INSERT_TAIL(&assignments, assignment, assignments);
@@ -482,57 +387,57 @@ CFGFUN(no_focus) {
  * Bar configuration (i3bar)
  ******************************************************************************/
 
-static Barconfig current_bar;
+static Barconfig *current_bar;
 
 CFGFUN(bar_font, const char *font) {
-    FREE(current_bar.font);
-    current_bar.font = sstrdup(font);
+    FREE(current_bar->font);
+    current_bar->font = sstrdup(font);
 }
 
 CFGFUN(bar_separator_symbol, const char *separator) {
-    FREE(current_bar.separator_symbol);
-    current_bar.separator_symbol = sstrdup(separator);
+    FREE(current_bar->separator_symbol);
+    current_bar->separator_symbol = sstrdup(separator);
 }
 
 CFGFUN(bar_mode, const char *mode) {
-    current_bar.mode = (strcmp(mode, "dock") == 0 ? M_DOCK : (strcmp(mode, "hide") == 0 ? M_HIDE : M_INVISIBLE));
+    current_bar->mode = (strcmp(mode, "dock") == 0 ? M_DOCK : (strcmp(mode, "hide") == 0 ? M_HIDE : M_INVISIBLE));
 }
 
 CFGFUN(bar_hidden_state, const char *hidden_state) {
-    current_bar.hidden_state = (strcmp(hidden_state, "hide") == 0 ? S_HIDE : S_SHOW);
+    current_bar->hidden_state = (strcmp(hidden_state, "hide") == 0 ? S_HIDE : S_SHOW);
 }
 
 CFGFUN(bar_id, const char *bar_id) {
-    current_bar.id = sstrdup(bar_id);
+    current_bar->id = sstrdup(bar_id);
 }
 
 CFGFUN(bar_output, const char *output) {
-    int new_outputs = current_bar.num_outputs + 1;
-    current_bar.outputs = srealloc(current_bar.outputs, sizeof(char *) * new_outputs);
-    current_bar.outputs[current_bar.num_outputs] = sstrdup(output);
-    current_bar.num_outputs = new_outputs;
+    int new_outputs = current_bar->num_outputs + 1;
+    current_bar->outputs = srealloc(current_bar->outputs, sizeof(char *) * new_outputs);
+    current_bar->outputs[current_bar->num_outputs] = sstrdup(output);
+    current_bar->num_outputs = new_outputs;
 }
 
 CFGFUN(bar_verbose, const char *verbose) {
-    current_bar.verbose = eval_boolstr(verbose);
+    current_bar->verbose = eval_boolstr(verbose);
 }
 
 CFGFUN(bar_modifier, const char *modifier) {
     if (strcmp(modifier, "Mod1") == 0)
-        current_bar.modifier = M_MOD1;
+        current_bar->modifier = M_MOD1;
     else if (strcmp(modifier, "Mod2") == 0)
-        current_bar.modifier = M_MOD2;
+        current_bar->modifier = M_MOD2;
     else if (strcmp(modifier, "Mod3") == 0)
-        current_bar.modifier = M_MOD3;
+        current_bar->modifier = M_MOD3;
     else if (strcmp(modifier, "Mod4") == 0)
-        current_bar.modifier = M_MOD4;
+        current_bar->modifier = M_MOD4;
     else if (strcmp(modifier, "Mod5") == 0)
-        current_bar.modifier = M_MOD5;
+        current_bar->modifier = M_MOD5;
     else if (strcmp(modifier, "Control") == 0 ||
              strcmp(modifier, "Ctrl") == 0)
-        current_bar.modifier = M_CONTROL;
+        current_bar->modifier = M_CONTROL;
     else if (strcmp(modifier, "Shift") == 0)
-        current_bar.modifier = M_SHIFT;
+        current_bar->modifier = M_SHIFT;
 }
 
 static void bar_configure_binding(const char *button, const char *command) {
@@ -548,17 +453,17 @@ static void bar_configure_binding(const char *button, const char *command) {
     }
 
     struct Barbinding *current;
-    TAILQ_FOREACH(current, &(current_bar.bar_bindings), bindings) {
+    TAILQ_FOREACH(current, &(current_bar->bar_bindings), bindings) {
         if (current->input_code == input_code) {
             ELOG("command for button %s was already specified, ignoring.\n", button);
             return;
         }
     }
 
-    struct Barbinding *new_binding = scalloc(sizeof(struct Barbinding));
+    struct Barbinding *new_binding = scalloc(1, sizeof(struct Barbinding));
     new_binding->input_code = input_code;
     new_binding->command = sstrdup(command);
-    TAILQ_INSERT_TAIL(&(current_bar.bar_bindings), new_binding, bindings);
+    TAILQ_INSERT_TAIL(&(current_bar->bar_bindings), new_binding, bindings);
 }
 
 CFGFUN(bar_wheel_up_cmd, const char *command) {
@@ -576,29 +481,29 @@ CFGFUN(bar_bindsym, const char *button, const char *command) {
 }
 
 CFGFUN(bar_position, const char *position) {
-    current_bar.position = (strcmp(position, "top") == 0 ? P_TOP : P_BOTTOM);
+    current_bar->position = (strcmp(position, "top") == 0 ? P_TOP : P_BOTTOM);
 }
 
 CFGFUN(bar_i3bar_command, const char *i3bar_command) {
-    FREE(current_bar.i3bar_command);
-    current_bar.i3bar_command = sstrdup(i3bar_command);
+    FREE(current_bar->i3bar_command);
+    current_bar->i3bar_command = sstrdup(i3bar_command);
 }
 
 CFGFUN(bar_color, const char *colorclass, const char *border, const char *background, const char *text) {
-#define APPLY_COLORS(classname)                                          \
-    do {                                                                 \
-        if (strcmp(colorclass, #classname) == 0) {                       \
-            if (text != NULL) {                                          \
-                /* New syntax: border, background, text */               \
-                current_bar.colors.classname##_border = sstrdup(border); \
-                current_bar.colors.classname##_bg = sstrdup(background); \
-                current_bar.colors.classname##_text = sstrdup(text);     \
-            } else {                                                     \
-                /* Old syntax: text, background */                       \
-                current_bar.colors.classname##_bg = sstrdup(background); \
-                current_bar.colors.classname##_text = sstrdup(border);   \
-            }                                                            \
-        }                                                                \
+#define APPLY_COLORS(classname)                                           \
+    do {                                                                  \
+        if (strcmp(colorclass, #classname) == 0) {                        \
+            if (text != NULL) {                                           \
+                /* New syntax: border, background, text */                \
+                current_bar->colors.classname##_border = sstrdup(border); \
+                current_bar->colors.classname##_bg = sstrdup(background); \
+                current_bar->colors.classname##_text = sstrdup(text);     \
+            } else {                                                      \
+                /* Old syntax: text, background */                        \
+                current_bar->colors.classname##_bg = sstrdup(background); \
+                current_bar->colors.classname##_text = sstrdup(border);   \
+            }                                                             \
+        }                                                                 \
     } while (0)
 
     APPLY_COLORS(focused_workspace);
@@ -611,67 +516,72 @@ CFGFUN(bar_color, const char *colorclass, const char *border, const char *backgr
 }
 
 CFGFUN(bar_socket_path, const char *socket_path) {
-    FREE(current_bar.socket_path);
-    current_bar.socket_path = sstrdup(socket_path);
+    FREE(current_bar->socket_path);
+    current_bar->socket_path = sstrdup(socket_path);
 }
 
 CFGFUN(bar_tray_output, const char *output) {
-    FREE(current_bar.tray_output);
-    current_bar.tray_output = sstrdup(output);
+    struct tray_output_t *tray_output = scalloc(1, sizeof(struct tray_output_t));
+    tray_output->output = sstrdup(output);
+    TAILQ_INSERT_TAIL(&(current_bar->tray_outputs), tray_output, tray_outputs);
 }
 
 CFGFUN(bar_tray_padding, const long padding_px) {
-    current_bar.tray_padding = padding_px;
+    current_bar->tray_padding = padding_px;
 }
 
 CFGFUN(bar_color_single, const char *colorclass, const char *color) {
     if (strcmp(colorclass, "background") == 0)
-        current_bar.colors.background = sstrdup(color);
+        current_bar->colors.background = sstrdup(color);
     else if (strcmp(colorclass, "separator") == 0)
-        current_bar.colors.separator = sstrdup(color);
+        current_bar->colors.separator = sstrdup(color);
+    else if (strcmp(colorclass, "statusline") == 0)
+        current_bar->colors.statusline = sstrdup(color);
+    else if (strcmp(colorclass, "focused_background") == 0)
+        current_bar->colors.focused_background = sstrdup(color);
+    else if (strcmp(colorclass, "focused_separator") == 0)
+        current_bar->colors.focused_separator = sstrdup(color);
     else
-        current_bar.colors.statusline = sstrdup(color);
+        current_bar->colors.focused_statusline = sstrdup(color);
 }
 
 CFGFUN(bar_status_command, const char *command) {
-    FREE(current_bar.status_command);
-    current_bar.status_command = sstrdup(command);
+    FREE(current_bar->status_command);
+    current_bar->status_command = sstrdup(command);
 }
 
 CFGFUN(bar_binding_mode_indicator, const char *value) {
-    current_bar.hide_binding_mode_indicator = !eval_boolstr(value);
+    current_bar->hide_binding_mode_indicator = !eval_boolstr(value);
 }
 
 CFGFUN(bar_workspace_buttons, const char *value) {
-    current_bar.hide_workspace_buttons = !eval_boolstr(value);
+    current_bar->hide_workspace_buttons = !eval_boolstr(value);
 }
 
 CFGFUN(bar_strip_workspace_numbers, const char *value) {
-    current_bar.strip_workspace_numbers = eval_boolstr(value);
+    current_bar->strip_workspace_numbers = eval_boolstr(value);
 }
 
 CFGFUN(bar_start) {
-    TAILQ_INIT(&(current_bar.bar_bindings));
-    current_bar.tray_padding = 2;
+    current_bar = scalloc(1, sizeof(struct Barconfig));
+    TAILQ_INIT(&(current_bar->bar_bindings));
+    TAILQ_INIT(&(current_bar->tray_outputs));
+    current_bar->tray_padding = 2;
 }
 
 CFGFUN(bar_finish) {
     DLOG("\t new bar configuration finished, saving.\n");
     /* Generate a unique ID for this bar if not already configured */
-    if (!current_bar.id)
-        sasprintf(&current_bar.id, "bar-%d", config.number_barconfigs);
+    if (current_bar->id == NULL)
+        sasprintf(&current_bar->id, "bar-%d", config.number_barconfigs);
 
     config.number_barconfigs++;
 
     /* If no font was explicitly set, we use the i3 font as default */
-    if (!current_bar.font && font_pattern)
-        current_bar.font = sstrdup(font_pattern);
+    if (current_bar->font == NULL && font_pattern != NULL)
+        current_bar->font = sstrdup(font_pattern);
 
-    /* Copy the current (static) structure into a dynamically allocated
-     * one, then cleanup our static one. */
-    Barconfig *bar_config = scalloc(sizeof(Barconfig));
-    memcpy(bar_config, &current_bar, sizeof(Barconfig));
-    TAILQ_INSERT_TAIL(&barconfigs, bar_config, configs);
-
-    memset(&current_bar, '\0', sizeof(Barconfig));
+    TAILQ_INSERT_TAIL(&barconfigs, current_bar, configs);
+    /* Simply reset the pointer, but don't free the resources. */
+    current_bar = NULL;
 }

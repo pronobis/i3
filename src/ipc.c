@@ -84,7 +84,7 @@ void ipc_shutdown(void) {
 IPC_HANDLER(command) {
     /* To get a properly terminated buffer, we copy
      * message_size bytes out of the buffer */
-    char *command = scalloc(message_size + 1);
+    char *command = scalloc(message_size + 1, 1);
     strncpy(command, (const char *)message, message_size);
     LOG("IPC: received: *%s*\n", command);
     yajl_gen gen = yajl_gen_alloc(NULL);
@@ -121,6 +121,68 @@ static void dump_rect(yajl_gen gen, const char *name, Rect r) {
     y(map_close);
 }
 
+static void dump_event_state_mask(yajl_gen gen, Binding *bind) {
+    y(array_open);
+    for (int i = 0; i < 20; i++) {
+        if (bind->event_state_mask & (1 << i)) {
+            switch (1 << i) {
+                case XCB_KEY_BUT_MASK_SHIFT:
+                    ystr("shift");
+                    break;
+                case XCB_KEY_BUT_MASK_LOCK:
+                    ystr("lock");
+                    break;
+                case XCB_KEY_BUT_MASK_CONTROL:
+                    ystr("ctrl");
+                    break;
+                case XCB_KEY_BUT_MASK_MOD_1:
+                    ystr("Mod1");
+                    break;
+                case XCB_KEY_BUT_MASK_MOD_2:
+                    ystr("Mod2");
+                    break;
+                case XCB_KEY_BUT_MASK_MOD_3:
+                    ystr("Mod3");
+                    break;
+                case XCB_KEY_BUT_MASK_MOD_4:
+                    ystr("Mod4");
+                    break;
+                case XCB_KEY_BUT_MASK_MOD_5:
+                    ystr("Mod5");
+                    break;
+                case XCB_KEY_BUT_MASK_BUTTON_1:
+                    ystr("Button1");
+                    break;
+                case XCB_KEY_BUT_MASK_BUTTON_2:
+                    ystr("Button2");
+                    break;
+                case XCB_KEY_BUT_MASK_BUTTON_3:
+                    ystr("Button3");
+                    break;
+                case XCB_KEY_BUT_MASK_BUTTON_4:
+                    ystr("Button4");
+                    break;
+                case XCB_KEY_BUT_MASK_BUTTON_5:
+                    ystr("Button5");
+                    break;
+                case (I3_XKB_GROUP_MASK_1 << 16):
+                    ystr("Group1");
+                    break;
+                case (I3_XKB_GROUP_MASK_2 << 16):
+                    ystr("Group2");
+                    break;
+                case (I3_XKB_GROUP_MASK_3 << 16):
+                    ystr("Group3");
+                    break;
+                case (I3_XKB_GROUP_MASK_4 << 16):
+                    ystr("Group4");
+                    break;
+            }
+        }
+    }
+    y(array_close);
+}
+
 static void dump_binding(yajl_gen gen, Binding *bind) {
     y(map_open);
     ystr("input_code");
@@ -138,39 +200,13 @@ static void dump_binding(yajl_gen gen, Binding *bind) {
     ystr("command");
     ystr(bind->command);
 
+    // This key is only provided for compatibility, new programs should use
+    // event_state_mask instead.
     ystr("mods");
-    y(array_open);
-    for (int i = 0; i < 8; i++) {
-        if (bind->mods & (1 << i)) {
-            switch (1 << i) {
-                case XCB_MOD_MASK_SHIFT:
-                    ystr("shift");
-                    break;
-                case XCB_MOD_MASK_LOCK:
-                    ystr("lock");
-                    break;
-                case XCB_MOD_MASK_CONTROL:
-                    ystr("ctrl");
-                    break;
-                case XCB_MOD_MASK_1:
-                    ystr("Mod1");
-                    break;
-                case XCB_MOD_MASK_2:
-                    ystr("Mod2");
-                    break;
-                case XCB_MOD_MASK_3:
-                    ystr("Mod3");
-                    break;
-                case XCB_MOD_MASK_4:
-                    ystr("Mod4");
-                    break;
-                case XCB_MOD_MASK_5:
-                    ystr("Mod5");
-                    break;
-            }
-        }
-    }
-    y(array_close);
+    dump_event_state_mask(gen, bind);
+
+    ystr("event_state_mask");
+    dump_event_state_mask(gen, bind);
 
     y(map_close);
 }
@@ -239,9 +275,16 @@ void dump_node(yajl_gen gen, struct Con *con, bool inplace_restart) {
     ystr("urgent");
     y(bool, con->urgent);
 
-    if (con->mark != NULL) {
-        ystr("mark");
-        ystr(con->mark);
+    if (!TAILQ_EMPTY(&(con->marks_head))) {
+        ystr("marks");
+        y(array_open);
+
+        mark_t *mark;
+        TAILQ_FOREACH(mark, &(con->marks_head), marks) {
+            ystr(mark->name);
+        }
+
+        y(array_close);
     }
 
     ystr("focused");
@@ -400,6 +443,9 @@ void dump_node(yajl_gen gen, struct Con *con, bool inplace_restart) {
     ystr("fullscreen_mode");
     y(integer, con->fullscreen_mode);
 
+    ystr("sticky");
+    y(bool, con->sticky);
+
     ystr("floating");
     switch (con->floating) {
         case FLOATING_AUTO_OFF:
@@ -505,6 +551,18 @@ static void dump_bar_config(yajl_gen gen, Barconfig *config) {
         y(array_close);
     }
 
+    if (!TAILQ_EMPTY(&(config->tray_outputs))) {
+        ystr("tray_outputs");
+        y(array_open);
+
+        struct tray_output_t *tray_output;
+        TAILQ_FOREACH(tray_output, &(config->tray_outputs), tray_outputs) {
+            ystr(tray_output->output);
+        }
+
+        y(array_close);
+    }
+
 #define YSTR_IF_SET(name)       \
     do {                        \
         if (config->name) {     \
@@ -512,8 +570,6 @@ static void dump_bar_config(yajl_gen gen, Barconfig *config) {
             ystr(config->name); \
         }                       \
     } while (0)
-
-    YSTR_IF_SET(tray_output);
 
     ystr("tray_padding");
     y(integer, config->tray_padding);
@@ -617,6 +673,9 @@ static void dump_bar_config(yajl_gen gen, Barconfig *config) {
     YSTR_IF_SET(background);
     YSTR_IF_SET(statusline);
     YSTR_IF_SET(separator);
+    YSTR_IF_SET(focused_background);
+    YSTR_IF_SET(focused_statusline);
+    YSTR_IF_SET(focused_separator);
     YSTR_IF_SET(focused_workspace_border);
     YSTR_IF_SET(focused_workspace_bg);
     YSTR_IF_SET(focused_workspace_text);
@@ -780,9 +839,12 @@ IPC_HANDLER(get_marks) {
     y(array_open);
 
     Con *con;
-    TAILQ_FOREACH(con, &all_cons, all_cons)
-    if (con->mark != NULL)
-        ystr(con->mark);
+    TAILQ_FOREACH(con, &all_cons, all_cons) {
+        mark_t *mark;
+        TAILQ_FOREACH(mark, &(con->marks_head), marks) {
+            ystr(mark->name);
+        }
+    }
 
     y(array_close);
 
@@ -855,8 +917,8 @@ IPC_HANDLER(get_bar_config) {
 
     /* To get a properly terminated buffer, we copy
      * message_size bytes out of the buffer */
-    char *bar_id = scalloc(message_size + 1);
-    strncpy(bar_id, (const char *)message, message_size);
+    char *bar_id = NULL;
+    sasprintf(&bar_id, "%.*s", message_size, message);
     LOG("IPC: looking for config for bar ID \"%s\"\n", bar_id);
     Barconfig *current, *config = NULL;
     TAILQ_FOREACH(current, &barconfigs, configs) {
@@ -866,6 +928,7 @@ IPC_HANDLER(get_bar_config) {
         config = current;
         break;
     }
+    free(bar_id);
 
     if (!config) {
         /* If we did not find a config for the given ID, the reply will contain
@@ -900,10 +963,10 @@ static int add_subscription(void *extra, const unsigned char *s,
     int event = client->num_events;
 
     client->num_events++;
-    client->events = realloc(client->events, client->num_events * sizeof(char *));
+    client->events = srealloc(client->events, client->num_events * sizeof(char *));
     /* We copy the string because it is not null-terminated and strndup()
      * is missing on some BSD systems */
-    client->events[event] = scalloc(len + 1);
+    client->events[event] = scalloc(len + 1, 1);
     memcpy(client->events[event], s, len);
 
     DLOG("client is now subscribed to:\n");
@@ -1060,13 +1123,13 @@ void ipc_new_client(EV_P_ struct ev_io *w, int revents) {
 
     set_nonblock(client);
 
-    struct ev_io *package = scalloc(sizeof(struct ev_io));
+    struct ev_io *package = scalloc(1, sizeof(struct ev_io));
     ev_io_init(package, ipc_receive_message, client, EV_READ);
     ev_io_start(EV_A_ package);
 
     DLOG("IPC: new client connected on fd %d\n", w->fd);
 
-    ipc_client *new = scalloc(sizeof(ipc_client));
+    ipc_client *new = scalloc(1, sizeof(ipc_client));
     new->fd = client;
 
     TAILQ_INSERT_TAIL(&all_clients, new, clients);
@@ -1087,7 +1150,7 @@ int ipc_create_socket(const char *filename) {
     char *copy = sstrdup(resolved);
     const char *dir = dirname(copy);
     if (!path_exists(dir))
-        mkdirp(dir);
+        mkdirp(dir, DEFAULT_DIR_MODE);
     free(copy);
 
     /* Unlink the unix domain socket before */

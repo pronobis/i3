@@ -58,7 +58,7 @@ bool parse_configuration(const char *override_configpath, bool use_nagbar) {
 
     /* initialize default bindings if we're just validating the config file */
     if (!use_nagbar && bindings == NULL) {
-        bindings = scalloc(sizeof(struct bindings_head));
+        bindings = scalloc(1, sizeof(struct bindings_head));
         TAILQ_INIT(bindings);
     }
 
@@ -75,20 +75,20 @@ void load_configuration(xcb_connection_t *conn, const char *override_configpath,
         ungrab_all_keys(conn);
 
         struct Mode *mode;
-        Binding *bind;
         while (!SLIST_EMPTY(&modes)) {
             mode = SLIST_FIRST(&modes);
             FREE(mode->name);
 
             /* Clear the old binding list */
-            bindings = mode->bindings;
-            while (!TAILQ_EMPTY(bindings)) {
-                bind = TAILQ_FIRST(bindings);
-                TAILQ_REMOVE(bindings, bind, bindings);
+            while (!TAILQ_EMPTY(mode->bindings)) {
+                Binding *bind = TAILQ_FIRST(mode->bindings);
+                TAILQ_REMOVE(mode->bindings, bind, bindings);
                 binding_free(bind);
             }
-            FREE(bindings);
+            FREE(mode->bindings);
+
             SLIST_REMOVE(&modes, mode, Mode, modes);
+            FREE(mode);
         }
 
         struct Assignment *assign;
@@ -110,14 +110,32 @@ void load_configuration(xcb_connection_t *conn, const char *override_configpath,
             FREE(barconfig->id);
             for (int c = 0; c < barconfig->num_outputs; c++)
                 free(barconfig->outputs[c]);
+
+            while (!TAILQ_EMPTY(&(barconfig->bar_bindings))) {
+                struct Barbinding *binding = TAILQ_FIRST(&(barconfig->bar_bindings));
+                FREE(binding->command);
+                TAILQ_REMOVE(&(barconfig->bar_bindings), binding, bindings);
+                FREE(binding);
+            }
+
+            while (!TAILQ_EMPTY(&(barconfig->tray_outputs))) {
+                struct tray_output_t *tray_output = TAILQ_FIRST(&(barconfig->tray_outputs));
+                FREE(tray_output->output);
+                TAILQ_REMOVE(&(barconfig->tray_outputs), tray_output, tray_outputs);
+                FREE(tray_output);
+            }
+
             FREE(barconfig->outputs);
-            FREE(barconfig->tray_output);
             FREE(barconfig->socket_path);
             FREE(barconfig->status_command);
             FREE(barconfig->i3bar_command);
             FREE(barconfig->font);
             FREE(barconfig->colors.background);
             FREE(barconfig->colors.statusline);
+            FREE(barconfig->colors.separator);
+            FREE(barconfig->colors.focused_background);
+            FREE(barconfig->colors.focused_statusline);
+            FREE(barconfig->colors.focused_separator);
             FREE(barconfig->colors.focused_workspace_border);
             FREE(barconfig->colors.focused_workspace_bg);
             FREE(barconfig->colors.focused_workspace_text);
@@ -155,9 +173,9 @@ void load_configuration(xcb_connection_t *conn, const char *override_configpath,
 
     SLIST_INIT(&modes);
 
-    struct Mode *default_mode = scalloc(sizeof(struct Mode));
+    struct Mode *default_mode = scalloc(1, sizeof(struct Mode));
     default_mode->name = sstrdup("default");
-    default_mode->bindings = scalloc(sizeof(struct bindings_head));
+    default_mode->bindings = scalloc(1, sizeof(struct bindings_head));
     TAILQ_INIT(default_mode->bindings);
     SLIST_INSERT_HEAD(&modes, default_mode, modes);
 
@@ -206,15 +224,12 @@ void load_configuration(xcb_connection_t *conn, const char *override_configpath,
     if (config.workspace_urgency_timer == 0)
         config.workspace_urgency_timer = 0.5;
 
-    /* Set default zero displays exit delay to 500ms */
-    if (config.zero_disp_exit_timer_ms == 0)
-        config.zero_disp_exit_timer_ms = 500;
-
     parse_configuration(override_configpath, true);
 
     if (reload) {
         translate_keysyms();
-        grab_all_keys(conn, false);
+        grab_all_keys(conn);
+        regrab_all_buttons(conn);
     }
 
     if (config.font.type == FONT_TYPE_NONE) {

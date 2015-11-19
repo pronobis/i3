@@ -77,6 +77,7 @@ struct Variable {
  */
 struct Mode {
     char *name;
+    bool pango_markup;
     struct bindings_head *bindings;
 
     SLIST_ENTRY(Mode) modes;
@@ -167,10 +168,6 @@ struct Config {
      * flag can be delayed using an urgency timer. */
     float workspace_urgency_timer;
 
-    /** Use a timer to delay exiting when no output is available.
-      * This can prevent i3 from exiting when all outputs disappear momentarily. */
-    float zero_disp_exit_timer_ms;
-
     /** Behavior when a window sends a NET_ACTIVE_WINDOW message. */
     enum {
         /* Focus if the target workspace is visible, set urgency hint otherwise. */
@@ -251,9 +248,10 @@ struct Barconfig {
      * simplicity (since we store just strings). */
     char **outputs;
 
-    /** Output on which the tray should be shown. The special value of 'no'
-     * disables the tray (it’s enabled by default). */
-    char *tray_output;
+    /* List of outputs on which the tray is allowed to be shown, in order.
+     * The special value "none" disables it (per default, it will be shown) and
+     * the special value "primary" enabled it on the primary output. */
+    TAILQ_HEAD(tray_outputs_head, tray_output_t) tray_outputs;
 
     /* Padding around the tray icons. */
     int tray_padding;
@@ -326,6 +324,10 @@ struct Barconfig {
         char *statusline;
         char *separator;
 
+        char *focused_background;
+        char *focused_statusline;
+        char *focused_separator;
+
         char *focused_workspace_border;
         char *focused_workspace_bg;
         char *focused_workspace_text;
@@ -363,6 +365,12 @@ struct Barbinding {
     char *command;
 
     TAILQ_ENTRY(Barbinding) bindings;
+};
+
+struct tray_output_t {
+    char *output;
+
+    TAILQ_ENTRY(tray_output_t) tray_outputs;
 };
 
 /**

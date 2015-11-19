@@ -103,7 +103,7 @@ static void restore_input_focus(void) {
  *
  */
 static uint8_t *concat_strings(char **glyphs, int max) {
-    uint8_t *output = calloc(max + 1, 4);
+    uint8_t *output = scalloc(max + 1, 4);
     uint8_t *walk = output;
     for (int c = 0; c < max; c++) {
         printf("at %c\n", glyphs[c][0]);
@@ -141,12 +141,12 @@ static int handle_expose(void *data, xcb_connection_t *conn, xcb_expose_event_t 
 
     /* draw the prompt … */
     if (prompt != NULL) {
-        draw_text(prompt, pixmap, pixmap_gc, logical_px(4), logical_px(4), logical_px(492));
+        draw_text(prompt, pixmap, pixmap_gc, NULL, logical_px(4), logical_px(4), logical_px(492));
     }
     /* … and the text */
     if (input_position > 0) {
         i3String *input = i3string_from_ucs2(glyphs_ucs, input_position);
-        draw_text(input, pixmap, pixmap_gc, prompt_offset + logical_px(4), logical_px(4), logical_px(492));
+        draw_text(input, pixmap, pixmap_gc, NULL, prompt_offset + logical_px(4), logical_px(4), logical_px(492));
         i3string_free(input);
     }
 
@@ -187,10 +187,10 @@ static void finish_input() {
 
     /* allocate space for the output */
     int inputlen = strlen(command);
-    char *full = calloc(1,
-                        strlen(format) - (2 * cnt) /* format without all %s */
-                            + (inputlen * cnt)     /* replaced %s */
-                            + 1);                  /* trailing NUL */
+    char *full = scalloc(strlen(format) - (2 * cnt) /* format without all %s */
+                             + (inputlen * cnt)     /* replaced %s */
+                             + 1,                   /* trailing NUL */
+                         1);
     char *dest = full;
     for (c = 0; c < len; c++) {
         /* if this is not % or it is % but without a following 's',
@@ -359,7 +359,7 @@ free_resources:
 }
 
 int main(int argc, char *argv[]) {
-    format = strdup("%s");
+    format = sstrdup("%s");
     socket_path = getenv("I3SOCK");
     char *pattern = sstrdup("pango:monospace 8");
     int o, option_index = 0;
@@ -381,7 +381,7 @@ int main(int argc, char *argv[]) {
         switch (o) {
             case 's':
                 FREE(socket_path);
-                socket_path = strdup(optarg);
+                socket_path = sstrdup(optarg);
                 break;
             case 'v':
                 printf("i3-input " I3_VERSION);
@@ -401,11 +401,11 @@ int main(int argc, char *argv[]) {
                 break;
             case 'f':
                 FREE(pattern);
-                pattern = strdup(optarg);
+                pattern = sstrdup(optarg);
                 break;
             case 'F':
                 FREE(format);
-                format = strdup(optarg);
+                format = sstrdup(optarg);
                 break;
             case 'h':
                 printf("i3-input " I3_VERSION "\n");

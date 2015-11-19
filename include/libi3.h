@@ -21,6 +21,8 @@
 #include <pango/pango.h>
 #endif
 
+#define DEFAULT_DIR_MODE (S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH)
+
 /**
  * Opaque data structure for storing strings.
  *
@@ -111,7 +113,7 @@ void *smalloc(size_t size);
  * there is no more memory available)
  *
  */
-void *scalloc(size_t size);
+void *scalloc(size_t num, size_t size);
 
 /**
  * Safe-wrapper around realloc which exits if realloc returns NULL (meaning
@@ -241,7 +243,7 @@ bool i3string_is_markup(i3String *str);
 /**
  * Set whether the i3String should use Pango markup.
  */
-void i3string_set_markup(i3String *str, bool is_markup);
+void i3string_set_markup(i3String *str, bool pango_markup);
 
 /**
  * Escape pango markup characters in the given string.
@@ -400,8 +402,8 @@ bool font_is_pango(void);
  * Text must be specified as an i3String.
  *
  */
-void draw_text(i3String *text, xcb_drawable_t drawable,
-               xcb_gcontext_t gc, int x, int y, int max_width);
+void draw_text(i3String *text, xcb_drawable_t drawable, xcb_gcontext_t gc,
+               xcb_visualtype_t *visual, int x, int y, int max_width);
 
 /**
  * ASCII version of draw_text to print static strings.
@@ -471,8 +473,10 @@ char *resolve_tilde(const char *path);
  */
 char *get_config_path(const char *override_configpath, bool use_system_paths);
 
+#if !defined(__sun)
 /**
  * Emulates mkdir -p (creates any missing folders)
  *
  */
-bool mkdirp(const char *path);
+int mkdirp(const char *path, mode_t mode);
+#endif

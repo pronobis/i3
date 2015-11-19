@@ -87,6 +87,7 @@ struct ws_assignments_head ws_assignments = TAILQ_HEAD_INITIALIZER(ws_assignment
 
 /* We hope that those are supported and set them to true */
 bool xcursor_supported = true;
+bool xkb_supported = true;
 
 /*
  * This callback is only a dummy, see xcb_prepare_cb and xcb_check_cb.
@@ -543,6 +544,7 @@ int main(int argc, char *argv[]) {
 
     const xcb_query_extension_reply_t *extreply;
     extreply = xcb_get_extension_data(conn, &xcb_xkb_id);
+    xkb_supported = extreply->present;
     if (!extreply->present) {
         DLOG("xkb is not present on this server\n");
     } else {
@@ -556,6 +558,37 @@ int main(int argc, char *argv[]) {
                               0xff,
                               0xff,
                               NULL);
+
+        /* Setting both, XCB_XKB_PER_CLIENT_FLAG_GRABS_USE_XKB_STATE and
+         * XCB_XKB_PER_CLIENT_FLAG_LOOKUP_STATE_WHEN_GRABBED, will lead to the
+         * X server sending us the full XKB state in KeyPress and KeyRelease:
+         * https://sources.debian.net/src/xorg-server/2:1.17.2-1.1/xkb/xkbEvents.c/?hl=927#L927
+         */
+        xcb_xkb_per_client_flags_reply_t *pcf_reply;
+        /* The last three parameters are unset because they are only relevant
+         * when using a feature called “automatic reset of boolean controls”:
+         * http://www.x.org/releases/X11R7.7/doc/kbproto/xkbproto.html#Automatic_Reset_of_Boolean_Controls
+         * */
+        pcf_reply = xcb_xkb_per_client_flags_reply(
+            conn,
+            xcb_xkb_per_client_flags(
+                conn,
+                XCB_XKB_ID_USE_CORE_KBD,
+                XCB_XKB_PER_CLIENT_FLAG_GRABS_USE_XKB_STATE | XCB_XKB_PER_CLIENT_FLAG_LOOKUP_STATE_WHEN_GRABBED,
+                XCB_XKB_PER_CLIENT_FLAG_GRABS_USE_XKB_STATE | XCB_XKB_PER_CLIENT_FLAG_LOOKUP_STATE_WHEN_GRABBED,
+                0 /* uint32_t ctrlsToChange */,
+                0 /* uint32_t autoCtrls */,
+                0 /* uint32_t autoCtrlsValues */),
+            NULL);
+        if (pcf_reply == NULL ||
+            !(pcf_reply->value & XCB_XKB_PER_CLIENT_FLAG_GRABS_USE_XKB_STATE)) {
+            ELOG("Could not set XCB_XKB_PER_CLIENT_FLAG_GRABS_USE_XKB_STATE\n");
+        }
+        if (pcf_reply == NULL ||
+            !(pcf_reply->value & XCB_XKB_PER_CLIENT_FLAG_LOOKUP_STATE_WHEN_GRABBED)) {
+            ELOG("Could not set XCB_XKB_PER_CLIENT_FLAG_LOOKUP_STATE_WHEN_GRABBED\n");
+        }
+        free(pcf_reply);
         xkb_base = extreply->first_event;
     }
 
@@ -569,8 +602,11 @@ int main(int argc, char *argv[]) {
 
     xcb_numlock_mask = aio_get_mod_mask_for(XCB_NUM_LOCK, keysyms);
 
+    if (!load_keymap())
+        die("Could not load keymap\n");
+
     translate_keysyms();
-    grab_all_keys(conn, false);
+    grab_all_keys(conn);
 
     bool needs_tree_init = true;
     if (layout_path) {
@@ -621,8 +657,6 @@ int main(int argc, char *argv[]) {
             ELOG("ERROR: No screen at (%d, %d), starting on the first screen\n",
                  pointerreply->root_x, pointerreply->root_y);
             output = get_first_output();
-            if (!output)
-                die("No usable outputs available.\n");
         }
 
         con_focus(con_descend_focused(output_get_content(output->con)));
@@ -635,7 +669,7 @@ int main(int argc, char *argv[]) {
     if (ipc_socket == -1) {
         ELOG("Could not create the IPC socket, IPC disabled\n");
     } else {
-        struct ev_io *ipc_io = scalloc(sizeof(struct ev_io));
+        struct ev_io *ipc_io = scalloc(1, sizeof(struct ev_io));
         ev_io_init(ipc_io, ipc_new_client, ipc_socket, EV_READ);
         ev_io_start(main_loop, ipc_io);
     }
@@ -663,7 +697,7 @@ int main(int argc, char *argv[]) {
                 ELOG("Could not disable FD_CLOEXEC on fd %d\n", fd);
             }
 
-            struct ev_io *ipc_io = scalloc(sizeof(struct ev_io));
+            struct ev_io *ipc_io = scalloc(1, sizeof(struct ev_io));
             ev_io_init(ipc_io, ipc_new_client, fd, EV_READ);
             ev_io_start(main_loop, ipc_io);
         }
@@ -679,9 +713,9 @@ int main(int argc, char *argv[]) {
     ewmh_update_desktop_names();
     ewmh_update_desktop_viewport();
 
-    struct ev_io *xcb_watcher = scalloc(sizeof(struct ev_io));
-    xcb_check = scalloc(sizeof(struct ev_check));
-    struct ev_prepare *xcb_prepare = scalloc(sizeof(struct ev_prepare));
+    struct ev_io *xcb_watcher = scalloc(1, sizeof(struct ev_io));
+    xcb_check = scalloc(1, sizeof(struct ev_check));
+    struct ev_prepare *xcb_prepare = scalloc(1, sizeof(struct ev_prepare));
 
     ev_io_init(xcb_watcher, xcb_got_event, xcb_get_file_descriptor(conn), EV_READ);
     ev_io_start(main_loop, xcb_watcher);
@@ -785,18 +819,28 @@ int main(int argc, char *argv[]) {
 
     /* Autostarting exec-lines */
     if (autostart) {
-        struct Autostart *exec;
-        TAILQ_FOREACH(exec, &autostarts, autostarts) {
+        while (!TAILQ_EMPTY(&autostarts)) {
+            struct Autostart *exec = TAILQ_FIRST(&autostarts);
+
             LOG("auto-starting %s\n", exec->command);
             start_application(exec->command, exec->no_startup_id);
+
+            FREE(exec->command);
+            TAILQ_REMOVE(&autostarts, exec, autostarts);
+            FREE(exec);
         }
     }
 
     /* Autostarting exec_always-lines */
-    struct Autostart *exec_always;
-    TAILQ_FOREACH(exec_always, &autostarts_always, autostarts_always) {
+    while (!TAILQ_EMPTY(&autostarts_always)) {
+        struct Autostart *exec_always = TAILQ_FIRST(&autostarts_always);
+
         LOG("auto-starting (always!) %s\n", exec_always->command);
         start_application(exec_always->command, exec_always->no_startup_id);
+
+        FREE(exec_always->command);
+        TAILQ_REMOVE(&autostarts_always, exec_always, autostarts_always);
+        FREE(exec_always);
     }
 
     /* Start i3bar processes for all configured bars */

@@ -29,6 +29,7 @@ state INITIAL:
   'kill' -> KILL
   'open' -> call cmd_open()
   'fullscreen' -> FULLSCREEN
+  'sticky' -> STICKY
   'split' -> SPLIT
   'floating' -> FLOATING
   'mark' -> MARK
@@ -116,9 +117,11 @@ state APPEND_LAYOUT:
 
 # workspace next|prev|next_on_output|prev_on_output
 # workspace back_and_forth
-# workspace <name>
-# workspace number <number>
+# workspace [--no-auto-back-and-forth] <name>
+# workspace [--no-auto-back-and-forth] number <number>
 state WORKSPACE:
+  no_auto_back_and_forth = '--no-auto-back-and-forth'
+      ->
   direction = 'next_on_output', 'prev_on_output', 'next', 'prev'
       -> call cmd_workspace($direction)
   'back_and_forth'
@@ -126,11 +129,11 @@ state WORKSPACE:
   'number'
       -> WORKSPACE_NUMBER
   workspace = string 
-      -> call cmd_workspace_name($workspace)
+      -> call cmd_workspace_name($workspace, $no_auto_back_and_forth)
 
 state WORKSPACE_NUMBER:
   workspace = string
-      -> call cmd_workspace_number($workspace)
+      -> call cmd_workspace_number($workspace, $no_auto_back_and_forth)
 
 # focus left|right|up|down
 # focus output <output>
@@ -183,6 +186,11 @@ state FULLSCREEN_COMPAT:
   end
       -> call cmd_fullscreen("toggle", "output")
 
+# sticky enable|disable|toggle
+state STICKY:
+  action = 'enable', 'disable', 'toggle'
+      -> call cmd_sticky($action)
+
 # split v|h|vertical|horizontal
 state SPLIT:
   direction = 'horizontal', 'vertical', 'v', 'h'
@@ -193,12 +201,14 @@ state FLOATING:
   floating = 'enable', 'disable', 'toggle'
       -> call cmd_floating($floating)
 
-# mark [--toggle] <mark>
+# mark [--add|--replace] [--toggle] <mark>
 state MARK:
+  mode = '--add', '--replace'
+      ->
   toggle = '--toggle'
       ->
   mark = string
-      -> call cmd_mark($mark, $toggle)
+      -> call cmd_mark($mark, $mode, $toggle)
 
 # unmark [mark]
 state UNMARK:
@@ -211,16 +221,18 @@ state UNMARK:
 state RESIZE:
   way = 'grow', 'shrink'
       -> RESIZE_DIRECTION
+  set = 'set'
+      -> RESIZE_SET
 
 state RESIZE_DIRECTION:
   direction = 'up', 'down', 'left', 'right', 'width', 'height'
       -> RESIZE_PX
 
 state RESIZE_PX:
-  resize_px = word
+  resize_px = number
       -> RESIZE_TILING
   end
-      -> call cmd_resize($way, $direction, "10", "10")
+      -> call cmd_resize($way, $direction, 10, 10)
 
 state RESIZE_TILING:
   'px'
@@ -228,15 +240,29 @@ state RESIZE_TILING:
   'or'
       -> RESIZE_TILING_OR
   end
-      -> call cmd_resize($way, $direction, $resize_px, "10")
+      -> call cmd_resize($way, $direction, &resize_px, 10)
 
 state RESIZE_TILING_OR:
-  resize_ppt = word
+  resize_ppt = number
       -> RESIZE_TILING_FINAL
 
 state RESIZE_TILING_FINAL:
   'ppt', end
-      -> call cmd_resize($way, $direction, $resize_px, $resize_ppt)
+      -> call cmd_resize($way, $direction, &resize_px, &resize_ppt)
+
+state RESIZE_SET:
+  width = number
+      -> RESIZE_WIDTH
+
+state RESIZE_WIDTH:
+  'px'
+      ->
+  height = number
+      -> RESIZE_HEIGHT
+
+state RESIZE_HEIGHT:
+  'px', end
+      -> call cmd_resize_set(&width, &height)
 
 # rename workspace <name> to <name>
 # rename workspace to <name>
@@ -282,6 +308,8 @@ state MOVE:
       ->
   'to'
       ->
+  no_auto_back_and_forth = '--no-auto-back-and-forth'
+      ->
   'workspace'
       -> MOVE_WORKSPACE
   'output'
@@ -298,16 +326,16 @@ state MOVE:
       -> MOVE_TO_ABSOLUTE_POSITION
 
 state MOVE_DIRECTION:
-  pixels = word
+  pixels = number
       -> MOVE_DIRECTION_PX
   end
-      -> call cmd_move_direction($direction, "10")
+      -> call cmd_move_direction($direction, 10)
 
 state MOVE_DIRECTION_PX:
   'px'
-      -> call cmd_move_direction($direction, $pixels)
+      -> call cmd_move_direction($direction, &pixels)
   end
-      -> call cmd_move_direction($direction, $pixels)
+      -> call cmd_move_direction($direction, &pixels)
 
 state MOVE_WORKSPACE:
   'to '
@@ -319,11 +347,11 @@ state MOVE_WORKSPACE:
   'number'
       -> MOVE_WORKSPACE_NUMBER
   workspace = string
-      -> call cmd_move_con_to_workspace_name($workspace)
+      -> call cmd_move_con_to_workspace_name($workspace, $no_auto_back_and_forth)
 
 state MOVE_WORKSPACE_NUMBER:
   number = string
-      -> call cmd_move_con_to_workspace_number($number)
+      -> call cmd_move_con_to_workspace_number($number, $no_auto_back_and_forth)
 
 state MOVE_TO_OUTPUT:
   output = string
@@ -348,18 +376,18 @@ state MOVE_TO_POSITION:
       -> call cmd_move_window_to_center($method)
   'mouse', 'cursor', 'pointer'
       -> call cmd_move_window_to_mouse()
-  coord_x = word
+  coord_x = number
       -> MOVE_TO_POSITION_X
 
 state MOVE_TO_POSITION_X:
   'px'
       ->
-  coord_y = word
+  coord_y = number
       -> MOVE_TO_POSITION_Y
 
 state MOVE_TO_POSITION_Y:
   'px', end
-      -> call cmd_move_window_to_position($method, $coord_x, $coord_y)
+      -> call cmd_move_window_to_position($method, &coord_x, &coord_y)
 
 # mode <string>
 state MODE:

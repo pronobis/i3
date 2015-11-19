@@ -122,7 +122,7 @@ static void push_string(const char *identifier, const char *str) {
     /* When we arrive here, the stack is full. This should not happen and
      * means there’s either a bug in this parser or the specification
      * contains a command with more than 10 identified tokens. */
-    fprintf(stderr, "BUG: commands_parser stack full. This means either a bug "
+    fprintf(stderr, "BUG: config_parser stack full. This means either a bug "
                     "in the code, or a new command which contains more than "
                     "10 identified tokens.\n");
     exit(1);
@@ -142,7 +142,7 @@ static void push_long(const char *identifier, long num) {
     /* When we arrive here, the stack is full. This should not happen and
      * means there’s either a bug in this parser or the specification
      * contains a command with more than 10 identified tokens. */
-    fprintf(stderr, "BUG: commands_parser stack full. This means either a bug "
+    fprintf(stderr, "BUG: config_parser stack full. This means either a bug "
                     "in the code, or a new command which contains more than "
                     "10 identified tokens.\n");
     exit(1);
@@ -177,53 +177,6 @@ static void clear_stack(void) {
         stack[c].val.num = 0;
     }
 }
-
-// TODO: remove this if it turns out we don’t need it for testing.
-#if 0
-/*******************************************************************************
- * A dynamically growing linked list which holds the criteria for the current
- * command.
- ******************************************************************************/
-
-typedef struct criterion {
-    char *type;
-    char *value;
-
-    TAILQ_ENTRY(criterion) criteria;
-} criterion;
-
-static TAILQ_HEAD(criteria_head, criterion) criteria =
-  TAILQ_HEAD_INITIALIZER(criteria);
-
-/*
- * Stores the given type/value in the list of criteria.
- * Accepts a pointer as first argument, since it is 'call'ed by the parser.
- *
- */
-static void push_criterion(void *unused_criteria, const char *type,
-                           const char *value) {
-    struct criterion *criterion = malloc(sizeof(struct criterion));
-    criterion->type = strdup(type);
-    criterion->value = strdup(value);
-    TAILQ_INSERT_TAIL(&criteria, criterion, criteria);
-}
-
-/*
- * Clears the criteria linked list.
- * Accepts a pointer as first argument, since it is 'call'ed by the parser.
- *
- */
-static void clear_criteria(void *unused_criteria) {
-    struct criterion *criterion;
-    while (!TAILQ_EMPTY(&criteria)) {
-        criterion = TAILQ_FIRST(&criteria);
-        free(criterion->type);
-        free(criterion->value);
-        TAILQ_REMOVE(&criteria, criterion, criteria);
-        free(criterion);
-    }
-}
-#endif
 
 /*******************************************************************************
  * The parser itself.
@@ -414,7 +367,7 @@ struct ConfigResultIR *parse_config(const char *input, struct context *context) 
                     }
                 }
                 if (walk != beginning) {
-                    char *str = scalloc(walk - beginning + 1);
+                    char *str = scalloc(walk - beginning + 1, 1);
                     /* We copy manually to handle escaping of characters. */
                     int inpos, outpos;
                     for (inpos = 0, outpos = 0;
@@ -519,7 +472,7 @@ struct ConfigResultIR *parse_config(const char *input, struct context *context) 
 
             /* Contains the same amount of characters as 'input' has, but with
              * the unparseable part highlighted using ^ characters. */
-            char *position = scalloc(strlen(error_line) + 1);
+            char *position = scalloc(strlen(error_line) + 1, 1);
             const char *copywalk;
             for (copywalk = error_line;
                  *copywalk != '\n' && *copywalk != '\r' && *copywalk != '\0';
@@ -789,12 +742,12 @@ static char *migrate_config(char *input, off_t size) {
 
     /* read the script’s output */
     int conv_size = 65535;
-    char *converted = malloc(conv_size);
+    char *converted = smalloc(conv_size);
     int read_bytes = 0, ret;
     do {
         if (read_bytes == conv_size) {
             conv_size += 65535;
-            converted = realloc(converted, conv_size);
+            converted = srealloc(converted, conv_size);
         }
         ret = read(readpipe[0], converted + read_bytes, conv_size - read_bytes);
         if (ret == -1) {
@@ -830,6 +783,34 @@ static char *migrate_config(char *input, off_t size) {
     return converted;
 }
 
+/**
+ * Launch nagbar to indicate errors in the configuration file.
+ */
+void start_config_error_nagbar(const char *configpath, bool has_errors) {
+    char *editaction, *pageraction;
+    sasprintf(&editaction, "i3-sensible-editor \"%s\" && i3-msg reload\n", configpath);
+    sasprintf(&pageraction, "i3-sensible-pager \"%s\"\n", errorfilename);
+    char *argv[] = {
+        NULL, /* will be replaced by the executable path */
+        "-f",
+        (config.font.pattern ? config.font.pattern : "fixed"),
+        "-t",
+        (has_errors ? "error" : "warning"),
+        "-m",
+        (has_errors ? "You have an error in your i3 config file!" : "Your config is outdated. Please fix the warnings to make sure everything works."),
+        "-b",
+        "edit config",
+        editaction,
+        (errorfilename ? "-b" : NULL),
+        (has_errors ? "show errors" : "show warnings"),
+        pageraction,
+        NULL};
+
+    start_nagbar(&config_error_nagbar_pid, argv);
+    free(editaction);
+    free(pageraction);
+}
+
 /*
  * Parses the given file by first replacing the variables, then calling
  * parse_config and possibly launching i3-nagbar.
@@ -849,7 +830,7 @@ bool parse_file(const char *f, bool use_nagbar) {
     if (fstat(fd, &stbuf) == -1)
         die("Could not fstat file: %s\n", strerror(errno));
 
-    buf = scalloc((stbuf.st_size + 1) * sizeof(char));
+    buf = scalloc(stbuf.st_size + 1, 1);
 
     if ((fstr = fdopen(fd, "r")) == NULL)
         die("Could not fdopen: %s\n", strerror(errno));
@@ -862,7 +843,7 @@ bool parse_file(const char *f, bool use_nagbar) {
                 break;
             die("Could not read configuration file\n");
         }
-        if (buffer[strlen(buffer) - 1] != '\n') {
+        if (buffer[strlen(buffer) - 1] != '\n' && !feof(fstr)) {
             ELOG("Your line continuation is too long, it exceeds %zd bytes\n", sizeof(buffer));
         }
         continuation = strstr(buffer, "\\\n");
@@ -897,7 +878,7 @@ bool parse_file(const char *f, bool use_nagbar) {
             while (*v_value == '\t' || *v_value == ' ')
                 v_value++;
 
-            struct Variable *new = scalloc(sizeof(struct Variable));
+            struct Variable *new = scalloc(1, sizeof(struct Variable));
             new->key = sstrdup(v_key);
             new->value = sstrdup(v_value);
             SLIST_INSERT_HEAD(&variables, new, variables);
@@ -931,7 +912,7 @@ bool parse_file(const char *f, bool use_nagbar) {
     /* Then, allocate a new buffer and copy the file over to the new one,
      * but replace occurences of our variables */
     char *walk = buf, *destwalk;
-    char *new = smalloc((stbuf.st_size + extra_bytes + 1) * sizeof(char));
+    char *new = smalloc(stbuf.st_size + extra_bytes + 1);
     destwalk = new;
     while (walk < (buf + stbuf.st_size)) {
         /* Find the next variable */
@@ -990,42 +971,22 @@ bool parse_file(const char *f, bool use_nagbar) {
         }
     }
 
-    context = scalloc(sizeof(struct context));
+    context = scalloc(1, sizeof(struct context));
     context->filename = f;
 
     struct ConfigResultIR *config_output = parse_config(new, context);
     yajl_gen_free(config_output->json_gen);
 
+    extract_workspace_names_from_bindings();
     check_for_duplicate_bindings(context);
+    reorder_bindings();
 
     if (use_nagbar && (context->has_errors || context->has_warnings)) {
         ELOG("FYI: You are using i3 version %s\n", i3_version);
         if (version == 3)
             ELOG("Please convert your configfile first, then fix any remaining errors (see above).\n");
 
-        char *editaction,
-            *pageraction;
-        sasprintf(&editaction, "i3-sensible-editor \"%s\" && i3-msg reload\n", f);
-        sasprintf(&pageraction, "i3-sensible-pager \"%s\"\n", errorfilename);
-        char *argv[] = {
-            NULL, /* will be replaced by the executable path */
-            "-f",
-            (config.font.pattern ? config.font.pattern : "fixed"),
-            "-t",
-            (context->has_errors ? "error" : "warning"),
-            "-m",
-            (context->has_errors ? "You have an error in your i3 config file!" : "Your config is outdated. Please fix the warnings to make sure everything works."),
-            "-b",
-            "edit config",
-            editaction,
-            (errorfilename ? "-b" : NULL),
-            (context->has_errors ? "show errors" : "show warnings"),
-            pageraction,
-            NULL};
-
-        start_nagbar(&config_error_nagbar_pid, argv);
-        free(editaction);
-        free(pageraction);
+        start_config_error_nagbar(f, context->has_errors);
     }
 
     bool has_errors = context->has_errors;

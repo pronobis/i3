@@ -56,6 +56,12 @@ bool con_is_split(Con *con);
 bool con_is_hidden(Con *con);
 
 /**
+ * Returns whether the container or any of its children is sticky.
+ *
+ */
+bool con_is_sticky(Con *con);
+
+/**
  * Returns true if this node has regular or floating children.
  *
  */
@@ -107,6 +113,12 @@ bool con_is_internal(Con *con);
 bool con_is_floating(Con *con);
 
 /**
+ * Returns true if the container is a docked container.
+ *
+ */
+bool con_is_docked(Con *con);
+
+/**
  * Checks if the given container is either floating or inside some floating
  * container. It returns the FLOATING_CON container.
  *
@@ -139,6 +151,35 @@ Con *con_by_frame_id(xcb_window_t frame);
  *
  */
 Con *con_by_mark(const char *mark);
+
+/**
+ * Returns true if and only if the given containers holds the mark.
+ *
+ */
+bool con_has_mark(Con *con, const char *mark);
+
+/**
+ * Toggles the mark on a container.
+ * If the container already has this mark, the mark is removed.
+ * Otherwise, the mark is assigned to the container.
+ *
+ */
+void con_mark_toggle(Con *con, const char *mark, mark_mode_t mode);
+
+/**
+ * Assigns a mark to the container.
+ *
+ */
+void con_mark(Con *con, const char *mark, mark_mode_t mode);
+
+/*
+ * Removes marks from containers.
+ * If con is NULL, all containers are considered.
+ * If name is NULL, this removes all existing marks.
+ * Otherwise, it will only remove the given mark (if it is present).
+ *
+ */
+void con_unmark(Con *con, const char *name);
 
 /**
  * Returns the first container below 'con' which wants to swallow this window
@@ -212,10 +253,14 @@ void con_disable_fullscreen(Con *con);
  * The dont_warp flag disables pointer warping and will be set when this
  * function is called while dragging a floating window.
  *
+ * If ignore_focus is set, the container will be moved without modifying focus
+ * at all.
+ *
  * TODO: is there a better place for this function?
  *
  */
-void con_move_to_workspace(Con *con, Con *workspace, bool fix_coordinates, bool dont_warp);
+void con_move_to_workspace(Con *con, Con *workspace, bool fix_coordinates,
+                           bool dont_warp, bool ignore_focus);
 
 /**
  * Moves the given container to the given mark.

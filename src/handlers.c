@@ -16,7 +16,6 @@
 #include <float.h>
 #include <sys/time.h>
 #include <xcb/randr.h>
-#include <X11/XKBlib.h>
 #define SN_API_NOT_YET_FROZEN 1
 #include <libsn/sn-monitor.h>
 
@@ -264,7 +263,7 @@ static void handle_mapping_notify(xcb_mapping_notify_event_t *event) {
 
     ungrab_all_keys(conn);
     translate_keysyms();
-    grab_all_keys(conn, false);
+    grab_all_keys(conn);
 
     return;
 }
@@ -387,14 +386,34 @@ static void handle_configure_request(xcb_configure_request_event_t *event) {
         return;
     }
 
-    /* Dock windows can be reconfigured in their height */
+    /* Dock windows can be reconfigured in their height and moved to another output. */
     if (con->parent && con->parent->type == CT_DOCKAREA) {
-        DLOG("Dock window, only height reconfiguration allowed\n");
+        DLOG("Reconfiguring dock window (con = %p).\n", con);
         if (event->value_mask & XCB_CONFIG_WINDOW_HEIGHT) {
-            DLOG("Height given, changing\n");
+            DLOG("Dock client wants to change height to %d, we can do that.\n", event->height);
 
             con->geometry.height = event->height;
             tree_render();
+        }
+
+        if (event->value_mask & XCB_CONFIG_WINDOW_X || event->value_mask & XCB_CONFIG_WINDOW_Y) {
+            int16_t x = event->value_mask & XCB_CONFIG_WINDOW_X ? event->x : (int16_t)con->geometry.x;
+            int16_t y = event->value_mask & XCB_CONFIG_WINDOW_Y ? event->y : (int16_t)con->geometry.y;
+
+            Con *current_output = con_get_output(con);
+            Output *target = get_output_containing(x, y);
+            if (target != NULL && current_output != target->con) {
+                DLOG("Dock client is requested to be moved to output %s, moving it there.\n", target->name);
+                Match *match;
+                Con *nc = con_for_window(target->con, con->window, &match);
+                DLOG("Dock client will be moved to container %p.\n", nc);
+                con_detach(con);
+                con_attach(con, nc, false);
+
+                tree_render();
+            } else {
+                DLOG("Dock client will not be moved, we only support moving it to another output.\n");
+            }
         }
     }
 
@@ -676,7 +695,8 @@ static void handle_client_message(xcb_client_message_event_t *event) {
     if (event->type == A__NET_WM_STATE) {
         if (event->format != 32 ||
             (event->data.data32[1] != A__NET_WM_STATE_FULLSCREEN &&
-             event->data.data32[1] != A__NET_WM_STATE_DEMANDS_ATTENTION)) {
+             event->data.data32[1] != A__NET_WM_STATE_DEMANDS_ATTENTION &&
+             event->data.data32[1] != A__NET_WM_STATE_STICKY)) {
             DLOG("Unknown atom in clientmessage of type %d\n", event->data.data32[1]);
             return;
         }
@@ -706,6 +726,17 @@ static void handle_client_message(xcb_client_message_event_t *event) {
                 con_set_urgency(con, false);
             else if (event->data.data32[0] == _NET_WM_STATE_TOGGLE)
                 con_set_urgency(con, !con->urgent);
+        } else if (event->data.data32[1] == A__NET_WM_STATE_STICKY) {
+            DLOG("Received a client message to modify _NET_WM_STATE_STICKY.\n");
+            if (event->data.data32[0] == _NET_WM_STATE_ADD)
+                con->sticky = true;
+            else if (event->data.data32[0] == _NET_WM_STATE_REMOVE)
+                con->sticky = false;
+            else if (event->data.data32[0] == _NET_WM_STATE_TOGGLE)
+                con->sticky = !con->sticky;
+
+            DLOG("New sticky status for con = %p is %i.\n", con, con->sticky);
+            output_push_sticky_windows(focused);
         }
 
         tree_render();
@@ -760,7 +791,7 @@ static void handle_client_message(xcb_client_message_event_t *event) {
         uint32_t rnd = event->data.data32[1];
         DLOG("[i3 sync protocol] Sending random value %d back to X11 window 0x%08x\n", rnd, window);
 
-        void *reply = scalloc(32);
+        void *reply = scalloc(32, 1);
         xcb_client_message_event_t *ev = reply;
 
         ev->response_type = XCB_CLIENT_MESSAGE;
@@ -933,13 +964,13 @@ static bool handle_normal_hints(void *data, xcb_connection_t *conn, uint8_t stat
     bool changed = false;
     if ((size_hints.flags & XCB_ICCCM_SIZE_HINT_P_RESIZE_INC)) {
         if (size_hints.width_inc > 0 && size_hints.width_inc < 0xFFFF)
-            if (con->width_increment != size_hints.width_inc) {
-                con->width_increment = size_hints.width_inc;
+            if (con->window->width_increment != size_hints.width_inc) {
+                con->window->width_increment = size_hints.width_inc;
                 changed = true;
             }
         if (size_hints.height_inc > 0 && size_hints.height_inc < 0xFFFF)
-            if (con->height_increment != size_hints.height_inc) {
-                con->height_increment = size_hints.height_inc;
+            if (con->window->height_increment != size_hints.height_inc) {
+                con->window->height_increment = size_hints.height_inc;
                 changed = true;
             }
 
@@ -961,10 +992,10 @@ static bool handle_normal_hints(void *data, xcb_connection_t *conn, uint8_t stat
         base_height = size_hints.min_height;
     }
 
-    if (base_width != con->base_width ||
-        base_height != con->base_height) {
-        con->base_width = base_width;
-        con->base_height = base_height;
+    if (base_width != con->window->base_width ||
+        base_height != con->window->base_height) {
+        con->window->base_width = base_width;
+        con->window->base_height = base_height;
         DLOG("client's base_height changed to %d\n", base_height);
         DLOG("client's base_width changed to %d\n", base_width);
         changed = true;
@@ -1000,8 +1031,8 @@ static bool handle_normal_hints(void *data, xcb_connection_t *conn, uint8_t stat
     } else
         goto render_and_return;
 
-    if (fabs(con->aspect_ratio - aspect_ratio) > DBL_EPSILON) {
-        con->aspect_ratio = aspect_ratio;
+    if (fabs(con->window->aspect_ratio - aspect_ratio) > DBL_EPSILON) {
+        con->window->aspect_ratio = aspect_ratio;
         changed = true;
     }
 
@@ -1336,9 +1367,11 @@ void handle_event(int type, xcb_generic_event_t *event) {
             DLOG("xkb new keyboard notify, sequence %d, time %d\n", state->sequence, state->time);
             xcb_key_symbols_free(keysyms);
             keysyms = xcb_key_symbols_alloc(conn);
+            if (((xcb_xkb_new_keyboard_notify_event_t *)event)->changed & XCB_XKB_NKN_DETAIL_KEYCODES)
+                (void)load_keymap();
             ungrab_all_keys(conn);
             translate_keysyms();
-            grab_all_keys(conn, false);
+            grab_all_keys(conn);
         } else if (state->xkbType == XCB_XKB_MAP_NOTIFY) {
             if (event_is_ignored(event->sequence, type)) {
                 DLOG("Ignoring map notify event for sequence %d.\n", state->sequence);
@@ -1349,26 +1382,16 @@ void handle_event(int type, xcb_generic_event_t *event) {
                 keysyms = xcb_key_symbols_alloc(conn);
                 ungrab_all_keys(conn);
                 translate_keysyms();
-                grab_all_keys(conn, false);
+                grab_all_keys(conn);
+                (void)load_keymap();
             }
         } else if (state->xkbType == XCB_XKB_STATE_NOTIFY) {
             DLOG("xkb state group = %d\n", state->group);
-
-            /* See The XKB Extension: Library Specification, section 14.1 */
-            /* We check if the current group (each group contains
-             * two levels) has been changed. Mode_switch activates
-             * group XCB_XKB_GROUP_2 */
             if (xkb_current_group == state->group)
                 return;
             xkb_current_group = state->group;
-            if (state->group == XCB_XKB_GROUP_1) {
-                DLOG("Mode_switch disabled\n");
-                ungrab_all_keys(conn);
-                grab_all_keys(conn, false);
-            } else {
-                DLOG("Mode_switch enabled\n");
-                grab_all_keys(conn, true);
-            }
+            ungrab_all_keys(conn);
+            grab_all_keys(conn);
         }
 
         return;

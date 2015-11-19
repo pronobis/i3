@@ -229,7 +229,7 @@ static int route_click(Con *con, xcb_button_press_event_t *event, const bool mod
 
     /* get the floating con */
     Con *floatingcon = con_inside_floating(con);
-    const bool proportional = (event->state & BIND_SHIFT);
+    const bool proportional = (event->state & XCB_KEY_BUT_MASK_SHIFT) == XCB_KEY_BUT_MASK_SHIFT;
     const bool in_stacked = (con->parent->layout == L_STACKED || con->parent->layout == L_TABBED);
 
     /* Kill on middle click */
@@ -361,7 +361,7 @@ int handle_button_press(xcb_button_press_event_t *event) {
 
     last_timestamp = event->time;
 
-    const uint32_t mod = config.floating_modifier;
+    const uint32_t mod = (config.floating_modifier & 0xFFFF);
     const bool mod_pressed = (mod != 0 && (event->state & mod) == mod);
     DLOG("floating_mod = %d, detail = %d\n", mod_pressed, event->detail);
     if ((con = con_by_window_id(event->event)))

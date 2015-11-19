@@ -12,10 +12,10 @@
 #include "config_parser.h"
 
 /**
- * A utility function to convert a string of modifiers to the corresponding bit
- * mask.
+ * A utility function to convert a string containing the group and modifiers to
+ * the corresponding bit mask.
  */
-uint32_t modifiers_from_str(const char *str);
+i3_event_state_mask_t event_state_from_str(const char *str);
 
 /** The beginning of the prototype for every cfg_ function. */
 #define I3_CFG Match *current_match, struct ConfigResultIR *result
@@ -51,7 +51,6 @@ CFGFUN(force_focus_wrapping, const char *value);
 CFGFUN(force_xinerama, const char *value);
 CFGFUN(fake_outputs, const char *outputs);
 CFGFUN(force_display_urgency_hint, const long duration_ms);
-CFGFUN(delay_exit_on_zero_displays, const long duration_ms);
 CFGFUN(focus_on_window_activation, const char *mode);
 CFGFUN(show_marks, const char *value);
 CFGFUN(hide_edge_borders, const char *borders);
@@ -67,7 +66,7 @@ CFGFUN(new_window, const char *windowtype, const char *border, const long width)
 CFGFUN(workspace, const char *workspace, const char *output);
 CFGFUN(binding, const char *bindtype, const char *modifiers, const char *key, const char *release, const char *border, const char *whole_window, const char *command);
 
-CFGFUN(enter_mode, const char *mode);
+CFGFUN(enter_mode, const char *pango_markup, const char *mode);
 CFGFUN(mode_binding, const char *bindtype, const char *modifiers, const char *key, const char *release, const char *border, const char *whole_window, const char *command);
 
 CFGFUN(bar_font, const char *font);

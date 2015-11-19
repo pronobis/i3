@@ -36,24 +36,26 @@ void con_force_split_parents_redraw(Con *con) {
  *
  */
 Con *con_new_skeleton(Con *parent, i3Window *window) {
-    Con *new = scalloc(sizeof(Con));
+    Con *new = scalloc(1, sizeof(Con));
     new->on_remove_child = con_on_remove_child;
     TAILQ_INSERT_TAIL(&all_cons, new, all_cons);
-    new->aspect_ratio = 0.0;
     new->type = CT_CON;
     new->window = window;
     new->border_style = config.default_border;
     new->current_border_width = -1;
-    if (window)
+    if (window) {
         new->depth = window->depth;
-    else
+        new->window->aspect_ratio = 0.0;
+    } else {
         new->depth = XCB_COPY_FROM_PARENT;
+    }
     DLOG("opening window\n");
 
     TAILQ_INIT(&(new->floating_head));
     TAILQ_INIT(&(new->nodes_head));
     TAILQ_INIT(&(new->focus_head));
     TAILQ_INIT(&(new->swallow_head));
+    TAILQ_INIT(&(new->marks_head));
 
     if (parent != NULL)
         con_attach(new, parent, false);
@@ -284,6 +286,23 @@ bool con_is_hidden(Con *con) {
 }
 
 /*
+ * Returns whether the container or any of its children is sticky.
+ *
+ */
+bool con_is_sticky(Con *con) {
+    if (con->sticky)
+        return true;
+
+    Con *child;
+    TAILQ_FOREACH(child, &(con->nodes_head), nodes) {
+        if (con_is_sticky(child))
+            return true;
+    }
+
+    return false;
+}
+
+/*
  * Returns true if this node accepts a window (if the node swallows windows,
  * it might already have swallowed enough and cannot hold any more).
  *
@@ -430,6 +449,20 @@ bool con_is_floating(Con *con) {
 }
 
 /*
+ * Returns true if the container is a docked container.
+ *
+ */
+bool con_is_docked(Con *con) {
+    if (con->parent == NULL)
+        return false;
+
+    if (con->parent->type == CT_DOCKAREA)
+        return true;
+
+    return con_is_docked(con->parent);
+}
+
+/*
  * Checks if the given container is either floating or inside some floating
  * container. It returns the FLOATING_CON container.
  *
@@ -494,11 +527,119 @@ Con *con_by_frame_id(xcb_window_t frame) {
 Con *con_by_mark(const char *mark) {
     Con *con;
     TAILQ_FOREACH(con, &all_cons, all_cons) {
-        if (con->mark != NULL && strcmp(con->mark, mark) == 0)
+        if (con_has_mark(con, mark))
             return con;
     }
 
     return NULL;
+}
+
+/*
+ * Returns true if and only if the given containers holds the mark.
+ *
+ */
+bool con_has_mark(Con *con, const char *mark) {
+    mark_t *current;
+    TAILQ_FOREACH(current, &(con->marks_head), marks) {
+        if (strcmp(current->name, mark) == 0)
+            return true;
+    }
+
+    return false;
+}
+
+/*
+ * Toggles the mark on a container.
+ * If the container already has this mark, the mark is removed.
+ * Otherwise, the mark is assigned to the container.
+ *
+ */
+void con_mark_toggle(Con *con, const char *mark, mark_mode_t mode) {
+    assert(con != NULL);
+    DLOG("Toggling mark \"%s\" on con = %p.\n", mark, con);
+
+    if (con_has_mark(con, mark)) {
+        con_unmark(con, mark);
+    } else {
+        con_mark(con, mark, mode);
+    }
+}
+
+/*
+ * Assigns a mark to the container.
+ *
+ */
+void con_mark(Con *con, const char *mark, mark_mode_t mode) {
+    assert(con != NULL);
+    DLOG("Setting mark \"%s\" on con = %p.\n", mark, con);
+
+    con_unmark(NULL, mark);
+    if (mode == MM_REPLACE) {
+        DLOG("Removing all existing marks on con = %p.\n", con);
+
+        mark_t *current;
+        TAILQ_FOREACH(current, &(con->marks_head), marks) {
+            con_unmark(con, current->name);
+        }
+    }
+
+    mark_t *new = scalloc(1, sizeof(mark_t));
+    new->name = sstrdup(mark);
+    TAILQ_INSERT_TAIL(&(con->marks_head), new, marks);
+
+    con->mark_changed = true;
+}
+
+/*
+ * Removes marks from containers.
+ * If con is NULL, all containers are considered.
+ * If name is NULL, this removes all existing marks.
+ * Otherwise, it will only remove the given mark (if it is present).
+ *
+ */
+void con_unmark(Con *con, const char *name) {
+    Con *current;
+    if (name == NULL) {
+        DLOG("Unmarking all containers.\n");
+        TAILQ_FOREACH(current, &all_cons, all_cons) {
+            if (con != NULL && current != con)
+                continue;
+
+            if (TAILQ_EMPTY(&(current->marks_head)))
+                continue;
+
+            mark_t *mark;
+            while (!TAILQ_EMPTY(&(current->marks_head))) {
+                mark = TAILQ_FIRST(&(current->marks_head));
+                FREE(mark->name);
+                TAILQ_REMOVE(&(current->marks_head), mark, marks);
+                FREE(mark);
+            }
+
+            current->mark_changed = true;
+        }
+    } else {
+        DLOG("Removing mark \"%s\".\n", name);
+        current = (con == NULL) ? con_by_mark(name) : con;
+        if (current == NULL) {
+            DLOG("No container found with this mark, so there is nothing to do.\n");
+            return;
+        }
+
+        DLOG("Found mark on con = %p. Removing it now.\n", current);
+        current->mark_changed = true;
+
+        mark_t *mark;
+        TAILQ_FOREACH(mark, &(current->marks_head), marks) {
+            if (strcmp(mark->name, name) != 0)
+                continue;
+
+            FREE(mark->name);
+            TAILQ_REMOVE(&(current->marks_head), mark, marks);
+            FREE(mark);
+            break;
+        }
+    }
 }
 
 /*
@@ -640,14 +781,13 @@ static void con_set_fullscreen_mode(Con *con, fullscreen_mode_t fullscreen_mode)
     if (con->window == NULL)
         return;
 
-    uint32_t values[1];
-    unsigned int num = 0;
-
-    if (con->fullscreen_mode != CF_NONE)
-        values[num++] = A__NET_WM_STATE_FULLSCREEN;
-
-    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, con->window->id,
-                        A__NET_WM_STATE, XCB_ATOM_ATOM, 32, num, values);
+    if (con->fullscreen_mode != CF_NONE) {
+        DLOG("Setting _NET_WM_STATE_FULLSCREEN for con = %p / window = %d.\n", con, con->window->id);
+        xcb_add_property_atom(conn, con->window->id, A__NET_WM_STATE, A__NET_WM_STATE_FULLSCREEN);
+    } else {
+        DLOG("Removing _NET_WM_STATE_FULLSCREEN for con = %p / window = %d.\n", con, con->window->id);
+        xcb_remove_property_atom(conn, con->window->id, A__NET_WM_STATE, A__NET_WM_STATE_FULLSCREEN);
+    }
 }
 
 /*
@@ -723,7 +863,7 @@ void con_disable_fullscreen(Con *con) {
     con_set_fullscreen_mode(con, CF_NONE);
 }
 
-static bool _con_move_to_con(Con *con, Con *target, bool behind_focused, bool fix_coordinates, bool dont_warp) {
+static bool _con_move_to_con(Con *con, Con *target, bool behind_focused, bool fix_coordinates, bool dont_warp, bool ignore_focus) {
     Con *orig_target = target;
 
     /* Prevent moving if this would violate the fullscreen focus restrictions. */
@@ -745,7 +885,7 @@ static bool _con_move_to_con(Con *con, Con *target, bool behind_focused, bool fi
         Con *child;
         while (!TAILQ_EMPTY(&(source_ws->floating_head))) {
             child = TAILQ_FIRST(&(source_ws->floating_head));
-            con_move_to_workspace(child, target_ws, true, true);
+            con_move_to_workspace(child, target_ws, true, true, false);
         }
 
         /* If there are no non-floating children, ignore the workspace. */
@@ -805,7 +945,7 @@ static bool _con_move_to_con(Con *con, Con *target, bool behind_focused, bool fi
         /* If moving to a visible workspace, call show so it can be considered
          * focused. Must do before attaching because workspace_show checks to see
          * if focused container is in its area. */
-        if (workspace_is_visible(target_ws)) {
+        if (!ignore_focus && workspace_is_visible(target_ws)) {
             workspace_show(target_ws);
 
             /* Don’t warp if told so (when dragging floating windows with the
@@ -840,8 +980,9 @@ static bool _con_move_to_con(Con *con, Con *target, bool behind_focused, bool fi
      * workspace, that is, don’t move focus away if the target workspace is
      * invisible.
      * We don’t focus the con for i3 pseudo workspaces like __i3_scratch and
-     * we don’t focus when there is a fullscreen con on that workspace. */
-    if (!con_is_internal(target_ws) && !fullscreen) {
+     * we don’t focus when there is a fullscreen con on that workspace. We
+     * also don't do it if the caller requested to ignore focus. */
+    if (!ignore_focus && !con_is_internal(target_ws) && !fullscreen) {
         /* We need to save the focused workspace on the output in case the
          * new workspace is hidden and it's necessary to immediately switch
          * back to the originally-focused workspace. */
@@ -859,11 +1000,12 @@ static bool _con_move_to_con(Con *con, Con *target, bool behind_focused, bool fi
     /* Descend focus stack in case focus_next is a workspace which can
      * occur if we move to the same workspace.  Also show current workspace
      * to ensure it is focused. */
-    workspace_show(current_ws);
+    if (!ignore_focus)
+        workspace_show(current_ws);
 
     /* Set focus only if con was on current workspace before moving.
      * Otherwise we would give focus to some window on different workspace. */
-    if (source_ws == current_ws)
+    if (!ignore_focus && source_ws == current_ws)
         con_focus(con_descend_focused(focus_next));
 
     /* 8. If anything within the container is associated with a startup sequence,
@@ -924,7 +1066,13 @@ bool con_move_to_mark(Con *con, const char *mark) {
     /* For floating target containers, we just send the window to the same workspace. */
     if (con_is_floating(target)) {
         DLOG("target container is floating, moving container to target's workspace.\n");
-        con_move_to_workspace(con, con_get_workspace(target), true, false);
+        con_move_to_workspace(con, con_get_workspace(target), true, false, false);
+        return true;
+    }
+
+    if (con->type == CT_WORKSPACE) {
+        DLOG("target container is a workspace, simply moving the container there.\n");
+        con_move_to_workspace(con, target, true, false, false);
         return true;
     }
 
@@ -936,12 +1084,12 @@ bool con_move_to_mark(Con *con, const char *mark) {
         target = TAILQ_FIRST(&(target->focus_head));
     }
 
-    if (con == target) {
-        DLOG("cannot move the container to itself, aborting.\n");
+    if (con == target || con == target->parent) {
+        DLOG("cannot move the container to or inside itself, aborting.\n");
         return false;
     }
 
-    return _con_move_to_con(con, target, false, true, false);
+    return _con_move_to_con(con, target, false, true, false, false);
 }
 
 /*
@@ -958,10 +1106,13 @@ bool con_move_to_mark(Con *con, const char *mark) {
  * The dont_warp flag disables pointer warping and will be set when this
  * function is called while dragging a floating window.
  *
+ * If ignore_focus is set, the container will be moved without modifying focus
+ * at all.
+ *
  * TODO: is there a better place for this function?
  *
  */
-void con_move_to_workspace(Con *con, Con *workspace, bool fix_coordinates, bool dont_warp) {
+void con_move_to_workspace(Con *con, Con *workspace, bool fix_coordinates, bool dont_warp, bool ignore_focus) {
     assert(workspace->type == CT_WORKSPACE);
 
     Con *source_ws = con_get_workspace(con);
@@ -971,7 +1122,7 @@ void con_move_to_workspace(Con *con, Con *workspace, bool fix_coordinates, bool 
     }
 
     Con *target = con_descend_focused(workspace);
-    _con_move_to_con(con, target, true, fix_coordinates, dont_warp);
+    _con_move_to_con(con, target, true, fix_coordinates, dont_warp, ignore_focus);
 }
 
 /*
@@ -1244,18 +1395,13 @@ Rect con_border_style_rect(Con *con) {
     int border_style = con_border_style(con);
     if (border_style == BS_NONE)
         return (Rect){0, 0, 0, 0};
-    borders_to_hide = con_adjacent_borders(con) & config.hide_edge_borders;
     if (border_style == BS_NORMAL) {
         result = (Rect){border_width, 0, -(2 * border_width), -(border_width)};
     } else {
         result = (Rect){border_width, border_width, -(2 * border_width), -(2 * border_width)};
     }
 
-    /* Floating windows are never adjacent to any other window, so
-       don’t hide their border(s). This prevents bug #998. */
-    if (con_is_floating(con))
-        return result;
-
+    borders_to_hide = con_adjacent_borders(con) & config.hide_edge_borders;
     if (borders_to_hide & ADJ_LEFT_SCREEN_EDGE) {
         result.x -= border_width;
         result.width += border_width;
@@ -1279,6 +1425,11 @@ Rect con_border_style_rect(Con *con) {
  */
 adjacent_t con_adjacent_borders(Con *con) {
     adjacent_t result = ADJ_NONE;
+    /* Floating windows are never adjacent to any other window, so
+       don’t hide their border(s). This prevents bug #998. */
+    if (con_is_floating(con))
+        return result;
+
     Con *workspace = con_get_workspace(con);
     if (con->rect.x == workspace->rect.x)
         result |= ADJ_LEFT_SCREEN_EDGE;

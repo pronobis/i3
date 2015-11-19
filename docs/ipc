@@ -520,6 +520,14 @@ statusline::
 	Text color to be used for the statusline.
 separator::
 	Text color to be used for the separator.
+focused_background::
+	Background color of the bar on the currently focused monitor output.
+focused_statusline::
+	Text color to be used for the statusline on the currently focused
+	monitor output.
+focused_separator::
+	Text color to be used for the separator on the currently focused
+	monitor output.
 focused_workspace_text/focused_workspace_bg/focused_workspace_border::
 	Text/background/border color for a workspace button when the workspace
 	has focus.
@@ -717,11 +725,15 @@ This event consists of a single serialized map containing a property
 This event consists of a single serialized map containing a property
 +change (string)+ which holds the name of current mode in use. The name
 is the same as specified in config when creating a mode. The default
-mode is simply named default.
+mode is simply named default. It contains a second property, +pango_markup+, which
+defines whether pango markup shall be used for displaying this mode.
 
 *Example:*
 ---------------------------
-{ "change": "default" }
+{
+  "change": "default",
+  "pango_markup": true
+}
 ---------------------------
 
 === window event
@@ -773,8 +785,8 @@ The +binding (object)+ field contains details about the binding that was run:
 
 command (string)::
 	The i3 command that is configured to run for this binding.
-mods (array of strings)::
-	The modifier keys that were configured with this binding.
+event_state_mask (array of strings)::
+	The group and modifier keys that were configured with this binding.
 input_code (integer)::
 	If the binding was configured with +bindcode+, this will be the key code
 	that was given for the binding. If the binding is a mouse binding, it will be
@@ -792,7 +804,7 @@ input_type (string)::
  "change": "run",
  "binding": {
   "command": "nop",
-  "mods": [
+  "event_state_mask": [
     "shift",
     "ctrl"
   ],

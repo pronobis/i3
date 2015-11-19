@@ -196,7 +196,7 @@ static int handle_expose(xcb_connection_t *conn, xcb_expose_event_t *event) {
 
     /* restore font color */
     set_font_colors(pixmap_gc, color_text, color_background);
-    draw_text(prompt, pixmap, pixmap_gc,
+    draw_text(prompt, pixmap, pixmap_gc, NULL,
               logical_px(4) + logical_px(4),
               logical_px(4) + logical_px(4),
               rect.width - logical_px(4) - logical_px(4));
@@ -264,7 +264,7 @@ static int handle_expose(xcb_connection_t *conn, xcb_expose_event_t *event) {
         values[1] = color_button_background;
         set_font_colors(pixmap_gc, color_text, color_button_background);
         /* the x term seems to set left/right padding */
-        draw_text(buttons[c].label, pixmap, pixmap_gc,
+        draw_text(buttons[c].label, pixmap, pixmap_gc, NULL,
                   y - w - line_width + logical_px(6),
                   logical_px(4) + logical_px(3),
                   rect.width - y + w + line_width - logical_px(6));
@@ -371,7 +371,7 @@ int main(int argc, char *argv[]) {
     if (argv0_len > strlen(".nagbar_cmd") &&
         strcmp(argv[0] + argv0_len - strlen(".nagbar_cmd"), ".nagbar_cmd") == 0) {
         unlink(argv[0]);
-        cmd = strdup(argv[0]);
+        cmd = sstrdup(argv[0]);
         *(cmd + argv0_len - strlen(".nagbar_cmd")) = '\0';
         execl("/bin/sh", "/bin/sh", cmd, NULL);
         err(EXIT_FAILURE, "execv(/bin/sh, /bin/sh, %s)", cmd);
@@ -418,7 +418,7 @@ int main(int argc, char *argv[]) {
                 printf("i3-nagbar [-m <message>] [-b <button> <action>] [-t warning|error] [-f <font>] [-v]\n");
                 return 0;
             case 'b':
-                buttons = realloc(buttons, sizeof(button_t) * (buttoncnt + 1));
+                buttons = srealloc(buttons, sizeof(button_t) * (buttoncnt + 1));
                 buttons[buttoncnt].label = i3string_from_utf8(optarg);
                 buttons[buttoncnt].action = argv[optind];
                 printf("button with label *%s* and action *%s*\n",

@@ -25,7 +25,7 @@ struct regex *regex_new(const char *pattern) {
     const char *error;
     int errorcode, offset;
 
-    struct regex *re = scalloc(sizeof(struct regex));
+    struct regex *re = scalloc(1, sizeof(struct regex));
     re->pattern = sstrdup(pattern);
     int options = PCRE_UTF8;
 #ifdef PCRE_HAS_UCP
@@ -64,6 +64,7 @@ void regex_free(struct regex *regex) {
     FREE(regex->pattern);
     FREE(regex->regex);
     FREE(regex->extra);
+    FREE(regex);
 }
 
 /*

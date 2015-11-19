@@ -24,7 +24,7 @@ struct _i3String {
     xcb_char2b_t *ucs2;
     size_t num_glyphs;
     size_t num_bytes;
-    bool is_markup;
+    bool pango_markup;
 };
 
 /*
@@ -33,7 +33,7 @@ struct _i3String {
  *
  */
 i3String *i3string_from_utf8(const char *from_utf8) {
-    i3String *str = scalloc(sizeof(i3String));
+    i3String *str = scalloc(1, sizeof(i3String));
 
     /* Get the text */
     str->utf8 = sstrdup(from_utf8);
@@ -52,7 +52,7 @@ i3String *i3string_from_markup(const char *from_markup) {
     i3String *str = i3string_from_utf8(from_markup);
 
     /* Set the markup flag */
-    str->is_markup = true;
+    str->pango_markup = true;
 
     return str;
 }
@@ -64,10 +64,10 @@ i3String *i3string_from_markup(const char *from_markup) {
  *
  */
 i3String *i3string_from_utf8_with_length(const char *from_utf8, size_t num_bytes) {
-    i3String *str = scalloc(sizeof(i3String));
+    i3String *str = scalloc(1, sizeof(i3String));
 
     /* Copy the actual text to our i3String */
-    str->utf8 = scalloc(sizeof(char) * (num_bytes + 1));
+    str->utf8 = scalloc(num_bytes + 1, 1);
     strncpy(str->utf8, from_utf8, num_bytes);
     str->utf8[num_bytes] = '\0';
 
@@ -86,7 +86,7 @@ i3String *i3string_from_markup_with_length(const char *from_markup, size_t num_b
     i3String *str = i3string_from_utf8_with_length(from_markup, num_bytes);
 
     /* set the markup flag */
-    str->is_markup = true;
+    str->pango_markup = true;
 
     return str;
 }
@@ -97,12 +97,11 @@ i3String *i3string_from_markup_with_length(const char *from_markup, size_t num_b
  *
  */
 i3String *i3string_from_ucs2(const xcb_char2b_t *from_ucs2, size_t num_glyphs) {
-    i3String *str = scalloc(sizeof(i3String));
+    i3String *str = scalloc(1, sizeof(i3String));
 
     /* Copy the actual text to our i3String */
-    size_t num_bytes = num_glyphs * sizeof(xcb_char2b_t);
-    str->ucs2 = scalloc(num_bytes);
-    memcpy(str->ucs2, from_ucs2, num_bytes);
+    str->ucs2 = scalloc(num_glyphs, sizeof(xcb_char2b_t));
+    memcpy(str->ucs2, from_ucs2, num_glyphs * sizeof(xcb_char2b_t));
 
     /* Store the length */
     str->num_glyphs = num_glyphs;
@@ -119,7 +118,7 @@ i3String *i3string_from_ucs2(const xcb_char2b_t *from_ucs2, size_t num_glyphs) {
  */
 i3String *i3string_copy(i3String *str) {
     i3String *copy = i3string_from_utf8(i3string_as_utf8(str));
-    copy->is_markup = str->is_markup;
+    copy->pango_markup = str->pango_markup;
     return copy;
 }
 
@@ -179,14 +178,14 @@ size_t i3string_get_num_bytes(i3String *str) {
  * Whether the given i3String is in Pango markup.
  */
 bool i3string_is_markup(i3String *str) {
-    return str->is_markup;
+    return str->pango_markup;
 }
 
 /*
  * Set whether the i3String should use Pango markup.
  */
-void i3string_set_markup(i3String *str, bool is_markup) {
-    str->is_markup = is_markup;
+void i3string_set_markup(i3String *str, bool pango_markup) {
+    str->pango_markup = pango_markup;
 }
 
 /*
@@ -195,7 +194,10 @@ void i3string_set_markup(i3String *str, bool is_markup) {
 i3String *i3string_escape_markup(i3String *str) {
 #if PANGO_SUPPORT
     const char *text = i3string_as_utf8(str);
-    return i3string_from_utf8(g_markup_escape_text(text, -1));
+    char *escaped = g_markup_escape_text(text, -1);
+    i3String *result = i3string_from_utf8(escaped);
+    free(escaped);
+    return result;
 #else
     return str;
 #endif
