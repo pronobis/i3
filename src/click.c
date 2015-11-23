@@ -176,9 +176,37 @@ static int route_click(Con *con, xcb_button_press_event_t *event, const bool mod
     DLOG("--> OUTCOME = %p\n", con);
     DLOG("type = %d, name = %s\n", con->type, con->name);
 
-    /* don’t handle dockarea cons, they must not be focused */
-    if (con->parent->type == CT_DOCKAREA)
+    /* Plasma windows end up on wrong displays if they output is not  */
+    /* active when the window is shown. Therefore, we activate the  */
+    /* output where the event happened for dock windows. */
+    /* Code from: check_crossing_screen_boundary(event->root_x, event->root_y); */
+    if (con->parent->type == CT_DOCKAREA) {
+      Output *output;
+      if ((output = get_output_containing(event->root_x, event->root_y)) == NULL) {
+        ELOG("ERROR: No such screen\n");
         goto done;
+      }
+
+      if (output->con == NULL) {
+        ELOG("ERROR: The screen is not recognized by i3 (no container associated)\n");
+        goto done;
+      }
+
+      /* Focus the output on which the user moved their cursor */
+      Con *old_focused = focused;
+      Con *next = con_descend_focused(output_get_content(output->con));
+
+      /* Since we are switching outputs, this *must* be a different workspace, so
+       * call workspace_show() */
+      workspace_show(con_get_workspace(next));
+      con_focus(next);
+
+      /* If the focus changed, we re-render to get updated decorations */
+      if (old_focused != focused)
+        tree_render();
+
+      goto done;
+    }
 
     const bool is_left_or_right_click = (event->detail == XCB_BUTTON_INDEX_1 ||
                                          event->detail == XCB_BUTTON_INDEX_3);
